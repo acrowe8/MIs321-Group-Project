@@ -188,6 +188,14 @@ body {
     box-shadow: 0 8px 25px rgba(158, 27, 50, 0.2);
 }
 
+.stat-card:hover .stat-number {
+    color: white;
+}
+
+.stat-card:hover .stat-label {
+    color: white;
+}
+
 .stat-number {
     font-size: 2.5rem;
     font-weight: 700;
@@ -224,6 +232,19 @@ body {
     background: #9E1B32;
     color: white;
     box-shadow: 0 10px 30px rgba(158, 27, 50, 0.2);
+}
+
+.feature-card:hover i {
+    color: white;
+}
+
+.feature-card:hover h3 {
+    color: white;
+}
+
+.feature-card:hover p {
+    color: white;
+    opacity: 1;
 }
 
 .feature-card i {
@@ -425,6 +446,12 @@ body {
     cursor: default;
 }
 
+.rated-text {
+    font-size: 0.8rem;
+    color: #666;
+    font-style: italic;
+}
+
 .note-author {
     font-weight: 500;
     color: #9E1B32;
@@ -452,6 +479,57 @@ body {
     color: #9E1B32;
     cursor: pointer;
     font-weight: 500;
+    text-decoration: underline;
+}
+
+/* Login Section */
+.login-section {
+    background: #f8f9fa;
+    padding: 4rem 0;
+}
+
+.login-section h2 {
+    text-align: center;
+    margin-bottom: 3rem;
+    color: #9E1B32;
+    font-size: 2.5rem;
+}
+
+.auth-container {
+    max-width: 800px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 3rem;
+}
+
+.auth-form {
+    background: white;
+    padding: 2rem;
+    border-radius: 15px;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+}
+
+.auth-form h3 {
+    text-align: center;
+    margin-bottom: 2rem;
+    color: #9E1B32;
+    font-size: 1.5rem;
+}
+
+.auth-form p {
+    text-align: center;
+    margin-top: 1rem;
+    color: #666;
+}
+
+.auth-form a {
+    color: #9E1B32;
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.auth-form a:hover {
     text-decoration: underline;
 }
 
@@ -633,4 +711,65 @@ section.active {
     padding: 3rem;
     color: #666;
     font-size: 1.2rem;
+}
+
+/* Individual Note Page */
+.note-page {
+    padding: 2rem 0;
+    background: white;
+}
+
+.note-header {
+    margin-bottom: 2rem;
+}
+
+.back-btn {
+    background: #9E1B32;
+    color: white;
+    border: none;
+    padding: 0.5rem 1rem;
+    border-radius: 5px;
+    cursor: pointer;
+    margin-bottom: 1rem;
+    font-size: 1rem;
+}
+
+.back-btn:hover {
+    background: #7a1428;
+}
+
+.note-page h1 {
+    color: #9E1B32;
+    font-size: 2.5rem;
+    margin-bottom: 1rem;
+}
+
+.note-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 2rem;
+}
+
+.note-content-full {
+    background: #f8f9fa;
+    padding: 2rem;
+    border-radius: 10px;
+    line-height: 1.8;
+    font-size: 1.1rem;
+    margin-bottom: 2rem;
+    white-space: pre-wrap;
+}
+
+.note-footer-full {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 0;
+    border-top: 2px solid #e0e0e0;
+}
+
+.note-date {
+    color: #666;
+    font-size: 0.9rem;
 }

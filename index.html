@@ -20,6 +20,7 @@
                 <a href="#home" class="nav-link active">Home</a>
                 <a href="#browse" class="nav-link">Browse</a>
                 <a href="#upload" class="nav-link">Upload</a>
+                <a href="#login" class="nav-link" id="loginLink">Login</a>
             </nav>
         </div>
     </header>
@@ -120,6 +121,54 @@
             <!-- Notes Display -->
             <div id="notesContainer" class="notes-grid">
                 <!-- Notes will be dynamically loaded here -->
+            </div>
+        </div>
+    </section>
+
+    <!-- Login/Signup Section -->
+    <section id="login" class="login-section">
+        <div class="container">
+            <h2>Account Access</h2>
+            <div class="auth-container">
+                <div class="auth-form" id="loginForm">
+                    <h3>Login</h3>
+                    <form id="loginFormElement">
+                        <div class="form-group">
+                            <label for="loginEmail">Email</label>
+                            <input type="email" id="loginEmail" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="loginPassword">Password</label>
+                            <input type="password" id="loginPassword" required>
+                        </div>
+                        <button type="submit" class="submit-btn">Login</button>
+                    </form>
+                    <p>Don't have an account? <a href="#" onclick="showSignup()">Sign up here</a></p>
+                </div>
+                
+                <div class="auth-form" id="signupForm" style="display: none;">
+                    <h3>Sign Up</h3>
+                    <form id="signupFormElement">
+                        <div class="form-group">
+                            <label for="signupName">Full Name</label>
+                            <input type="text" id="signupName" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="signupEmail">Email</label>
+                            <input type="email" id="signupEmail" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="signupPassword">Password</label>
+                            <input type="password" id="signupPassword" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="signupStudentId">Student ID</label>
+                            <input type="text" id="signupStudentId" required>
+                        </div>
+                        <button type="submit" class="submit-btn">Sign Up</button>
+                    </form>
+                    <p>Already have an account? <a href="#" onclick="showLogin()">Login here</a></p>
+                </div>
             </div>
         </div>
     </section>

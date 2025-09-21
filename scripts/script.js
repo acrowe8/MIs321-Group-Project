@@ -1,5 +1,9 @@
 // Sample data storage (in a real app, this would be a database)
 let userRatings = {}; // Store user ratings separately
+let currentUser = null; // Track logged in user
+let users = []; // Store registered users
+let userNotes = {}; // Track notes per user (limit to 5 per user)
+let noteRatings = {}; // Track which users have rated each note
 
 let notesData = [
     // MIS 221 - Jeff Lucas (Business Programming 1 - C#)
@@ -859,7 +863,7 @@ function displayNotes(notes) {
                 ${note.content.substring(0, 150)}${note.content.length > 150 ? '...' : ''}
             </div>
             ${note.content.length > 150 ? `
-                <button class="expand-btn" onclick="toggleExpand(event, ${note.id})">
+                <button class="expand-btn" onclick="showNotePage(${note.id})">
                     Read More
                 </button>
             ` : ''}
@@ -872,10 +876,17 @@ function displayNotes(notes) {
                         <span class="rating-text">(${note.rating.toFixed(1)})</span>
                     </div>
                     <div class="add-rating">
-                        <span class="rating-label">Add Rating: </span>
-                        <div class="rating" data-note-id="${note.id}">
-                            ${generateStars(0, note.id, true)}
-                        </div>
+                        ${currentUser && noteRatings[note.id] && noteRatings[note.id][currentUser.id] ? 
+                            `<span class="rating-label">Your Rating: </span>
+                             <div class="rating" data-note-id="${note.id}">
+                                 ${generateStars(noteRatings[note.id][currentUser.id], note.id, false)}
+                             </div>
+                             <span class="rated-text">(Already rated)</span>` :
+                            `<span class="rating-label">Add Rating: </span>
+                             <div class="rating" data-note-id="${note.id}">
+                                 ${generateStars(0, note.id, true)}
+                             </div>`
+                        }
                     </div>
                 </div>
             </div>
@@ -932,10 +943,38 @@ function toggleExpand(event, noteId) {
 
 // Add a user rating to a note
 function addRating(noteId, rating) {
+    // Check if user is logged in - try to restore from localStorage if needed
+    if (!currentUser) {
+        const savedCurrentUser = localStorage.getItem('rollTideCurrentUser');
+        if (savedCurrentUser) {
+            currentUser = JSON.parse(savedCurrentUser);
+            console.log('Restored current user from localStorage:', currentUser);
+        }
+    }
+    
+    if (!currentUser) {
+        console.log('No current user found. Available users:', users);
+        console.log('Current user from localStorage:', localStorage.getItem('rollTideCurrentUser'));
+        alert('Please login to rate notes!');
+        showSection('login');
+        return;
+    }
+    
     const note = notesData.find(n => n.id === noteId);
     if (note) {
+        // Check if user has already rated this note
+        if (!noteRatings[noteId]) {
+            noteRatings[noteId] = {};
+        }
+        
+        if (noteRatings[noteId][currentUser.id]) {
+            alert('You have already rated this note!');
+            return;
+        }
+        
         // Store user rating
         userRatings[noteId] = rating;
+        noteRatings[noteId][currentUser.id] = rating;
         
         // Calculate new average rating
         const existingRating = note.rating;
@@ -945,6 +984,7 @@ function addRating(noteId, rating) {
         
         updateAverageRating();
         displayNotes(filterNotesData());
+        saveToStorage(); // Save rating data
         
         // Show confirmation
         alert(`Thank you for rating this note ${rating} stars! Roll Tide!`);
@@ -969,12 +1009,25 @@ function updateAverageRating() {
 function handleUpload(e) {
     e.preventDefault();
     
+    // Check if user is logged in
+    if (!currentUser) {
+        alert('Please login to upload notes!');
+        showSection('login');
+        return;
+    }
+    
+    // Check note limit (5 notes per user)
+    if (userNotes[currentUser.id] >= 5) {
+        alert('You have reached the maximum of 5 notes per user. Please delete some notes before uploading new ones.');
+        return;
+    }
+    
     const newNote = {
         id: notesData.length + 1,
         title: document.getElementById('noteTitle').value,
         class: document.getElementById('noteClass').value,
         topic: document.getElementById('noteTopic').value,
-        author: document.getElementById('noteAuthor').value,
+        author: currentUser.name,
         teacher: document.getElementById('noteTeacher').value,
         content: document.getElementById('noteContent').value,
         rating: 0,
@@ -982,15 +1035,17 @@ function handleUpload(e) {
     };
 
     notesData.push(newNote);
+    userNotes[currentUser.id]++; // Increment user's note count
     
     // Reset form
     e.target.reset();
     
     // Update average rating
     updateAverageRating();
+    saveToStorage(); // Save new note and user data
     
     // Show success message
-    alert('Note uploaded successfully! Roll Tide!');
+    alert(`Note uploaded successfully! Roll Tide! (${userNotes[currentUser.id]}/5 notes used)`);
     
     // Switch to browse section
     showSection('browse');
@@ -1029,7 +1084,236 @@ function filterNotesData() {
     });
 }
 
+// Account system functions
+function showSignup() {
+    document.getElementById('loginForm').style.display = 'none';
+    document.getElementById('signupForm').style.display = 'block';
+}
+
+function showLogin() {
+    document.getElementById('signupForm').style.display = 'none';
+    document.getElementById('loginForm').style.display = 'block';
+}
+
+function handleLogin(e) {
+    e.preventDefault();
+    const email = document.getElementById('loginEmail').value;
+    const password = document.getElementById('loginPassword').value;
+    
+    const user = users.find(u => u.email === email && u.password === password);
+    if (user) {
+        currentUser = user;
+        document.getElementById('loginLink').textContent = `Welcome, ${user.name}`;
+        document.getElementById('loginLink').onclick = logout;
+        saveToStorage(); // Save login state
+        alert('Login successful! Roll Tide!');
+        showSection('home');
+    } else {
+        alert('Invalid email or password');
+    }
+}
+
+function handleSignup(e) {
+    e.preventDefault();
+    const name = document.getElementById('signupName').value;
+    const email = document.getElementById('signupEmail').value;
+    const password = document.getElementById('signupPassword').value;
+    const studentId = document.getElementById('signupStudentId').value;
+    
+    if (users.find(u => u.email === email)) {
+        alert('Email already registered');
+        return;
+    }
+    
+    const newUser = { name, email, password, studentId, id: users.length + 1 };
+    users.push(newUser);
+    userNotes[newUser.id] = 0; // Initialize note count
+    
+    saveToStorage(); // Save new user data
+    alert('Account created successfully! Roll Tide!');
+    showLogin();
+}
+
+function logout() {
+    currentUser = null;
+    document.getElementById('loginLink').textContent = 'Login';
+    document.getElementById('loginLink').onclick = null;
+    saveToStorage(); // Save logout state
+    showSection('home');
+}
+
+// Individual note page
+function showNotePage(noteId) {
+    const note = notesData.find(n => n.id === noteId);
+    if (!note) return;
+    
+    // Create note page content
+    const notePageHTML = `
+        <div class="note-page">
+            <div class="container">
+                <div class="note-header">
+                    <button onclick="backToBrowse()" class="back-btn">← Back to Browse</button>
+                    <h1>${note.title}</h1>
+                </div>
+                <div class="note-meta">
+                    <span class="meta-tag">${note.class}</span>
+                    <span class="meta-tag topic">${note.topic}</span>
+                    <span class="meta-tag teacher">${note.teacher}</span>
+                </div>
+                <div class="note-content-full">
+                    ${note.content}
+                </div>
+                <div class="note-footer-full">
+                    <div class="note-author">By: ${note.author}</div>
+                    <div class="note-date">Posted: ${note.date}</div>
+                    <div class="rating-section">
+                        <div class="current-rating">
+                            <span class="rating-label">Current: </span>
+                            <span class="rating-stars">${generateStars(note.rating, note.id, false)}</span>
+                            <span class="rating-text">(${note.rating.toFixed(1)})</span>
+                        </div>
+                        <div class="add-rating">
+                            ${currentUser && noteRatings[note.id] && noteRatings[note.id][currentUser.id] ? 
+                                `<span class="rating-label">Your Rating: </span>
+                                 <div class="rating" data-note-id="${note.id}">
+                                     ${generateStars(noteRatings[note.id][currentUser.id], note.id, false)}
+                                 </div>
+                                 <span class="rated-text">(Already rated)</span>` :
+                                `<span class="rating-label">Add Rating: </span>
+                                 <div class="rating" data-note-id="${note.id}">
+                                     ${generateStars(0, note.id, true)}
+                                 </div>`
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // Replace browse section content
+    const browseSection = document.getElementById('browse');
+    browseSection.innerHTML = notePageHTML;
+    showSection('browse');
+}
+
+// Function to restore browse section
+function backToBrowse() {
+    // Restore original browse section content
+    const browseSection = document.getElementById('browse');
+    browseSection.innerHTML = `
+        <div class="container">
+            <h2>Browse Notes</h2>
+            <div class="search-filters">
+                <div class="search-bar">
+                    <input type="text" id="searchInput" placeholder="Search notes...">
+                    <button onclick="searchNotes()"><i class="fas fa-search"></i></button>
+                </div>
+                <div class="filters">
+                    <select id="classFilter">
+                        <option value="">All Classes</option>
+                        <option value="MIS 221">MIS 221</option>
+                        <option value="MIS 321">MIS 321</option>
+                        <option value="MIS 330">MIS 330</option>
+                        <option value="MIS 405">MIS 405</option>
+                        <option value="MIS 430">MIS 430</option>
+                        <option value="MIS 431">MIS 431</option>
+                        <option value="MIS 451">MIS 451</option>
+                    </select>
+                    <select id="topicFilter">
+                        <option value="">All Topics</option>
+                        <option value="Exam Review">Exam Review</option>
+                        <option value="Lecture Notes">Lecture Notes</option>
+                        <option value="Project Guidelines">Project Guidelines</option>
+                        <option value="Study Guide">Study Guide</option>
+                        <option value="Homework Help">Homework Help</option>
+                    </select>
+                    <select id="teacherFilter">
+                        <option value="">All Teachers</option>
+                        <option value="Jeff Lucas">Jeff Lucas</option>
+                        <option value="Yuanyuan Chen">Yuanyuan Chen</option>
+                        <option value="Dr. Smith">Dr. Smith</option>
+                        <option value="Prof. Johnson">Prof. Johnson</option>
+                        <option value="Dr. Williams">Dr. Williams</option>
+                    </select>
+                    <input type="text" id="authorFilter" placeholder="Filter by author...">
+                </div>
+            </div>
+
+            <!-- Notes Display -->
+            <div id="notesContainer" class="notes-grid">
+                <!-- Notes will be dynamically loaded here -->
+            </div>
+        </div>
+    `;
+    
+    // Re-setup event listeners
+    setupEventListeners();
+    displayNotes(notesData);
+}
+
+// Load data from localStorage
+function loadFromStorage() {
+    // Load users
+    const savedUsers = localStorage.getItem('rollTideUsers');
+    if (savedUsers) {
+        users = JSON.parse(savedUsers);
+    }
+    
+    // Load user notes count
+    const savedUserNotes = localStorage.getItem('rollTideUserNotes');
+    if (savedUserNotes) {
+        userNotes = JSON.parse(savedUserNotes);
+    }
+    
+    // Load note ratings
+    const savedNoteRatings = localStorage.getItem('rollTideNoteRatings');
+    if (savedNoteRatings) {
+        noteRatings = JSON.parse(savedNoteRatings);
+    }
+    
+    // Load current user
+    const savedCurrentUser = localStorage.getItem('rollTideCurrentUser');
+    if (savedCurrentUser) {
+        currentUser = JSON.parse(savedCurrentUser);
+        // Update login link after DOM is ready
+        setTimeout(() => {
+            const loginLink = document.getElementById('loginLink');
+            if (loginLink) {
+                loginLink.textContent = `Welcome, ${currentUser.name}`;
+                loginLink.onclick = logout;
+            }
+        }, 100);
+    }
+}
+
+// Save data to localStorage
+function saveToStorage() {
+    localStorage.setItem('rollTideUsers', JSON.stringify(users));
+    localStorage.setItem('rollTideUserNotes', JSON.stringify(userNotes));
+    localStorage.setItem('rollTideNoteRatings', JSON.stringify(noteRatings));
+    if (currentUser) {
+        localStorage.setItem('rollTideCurrentUser', JSON.stringify(currentUser));
+    } else {
+        localStorage.removeItem('rollTideCurrentUser');
+    }
+}
+
 // Initialize with home section visible
 window.addEventListener('load', () => {
+    // Load saved data first
+    loadFromStorage();
+    
     showSection('home');
+    displayNotes(notesData);
+    setupEventListeners();
+    updateAverageRating();
+    
+    // Add event listeners for auth forms
+    document.getElementById('loginFormElement').addEventListener('submit', handleLogin);
+    document.getElementById('signupFormElement').addEventListener('submit', handleSignup);
+    
+    // Debug: Check if currentUser is loaded
+    console.log('Page loaded. Current user:', currentUser);
+    console.log('Users array:', users);
 });
