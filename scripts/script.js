@@ -814,6 +814,71 @@ function showSection(sectionId) {
     
     const activeLink = document.querySelector(`[href="#${sectionId}"]`);
     if (activeLink) activeLink.classList.add('active');
+    
+    // Clear forms when navigating away from login, signup, or upload sections
+    if (sectionId !== 'login') {
+        clearForm('loginFormElement');
+        clearForm('signupFormElement');
+    }
+    if (sectionId !== 'upload') {
+        clearForm('uploadForm');
+    }
+    
+    // Auto-fill author name if user is logged in and on upload page
+    if (sectionId === 'upload' && currentUser) {
+        document.getElementById('noteAuthor').value = currentUser.name;
+    }
+}
+
+// Function to clear forms
+function clearForm(formId) {
+    const form = document.getElementById(formId);
+    if (form) {
+        form.reset();
+    }
+    
+    // Clear all error messages when clearing forms
+    const errorMessages = document.querySelectorAll('.error-message');
+    errorMessages.forEach(error => {
+        error.textContent = '';
+        error.classList.remove('show');
+    });
+    
+    // Remove error styling from inputs
+    const inputs = document.querySelectorAll('input');
+    inputs.forEach(input => {
+        input.classList.remove('error');
+    });
+}
+
+// Function to show error message
+function showError(elementId, message) {
+    const errorElement = document.getElementById(elementId);
+    const inputElement = document.getElementById(elementId.replace('Error', ''));
+    
+    if (errorElement) {
+        errorElement.textContent = message;
+        errorElement.classList.add('show');
+    }
+    
+    if (inputElement) {
+        inputElement.classList.add('error');
+    }
+}
+
+// Function to clear specific error message
+function clearError(elementId) {
+    const errorElement = document.getElementById(elementId);
+    const inputElement = document.getElementById(elementId.replace('Error', ''));
+    
+    if (errorElement) {
+        errorElement.textContent = '';
+        errorElement.classList.remove('show');
+    }
+    
+    if (inputElement) {
+        inputElement.classList.remove('error');
+    }
 }
 
 // Setup event listeners
@@ -836,6 +901,14 @@ function setupEventListeners() {
     document.getElementById('topicFilter').addEventListener('change', filterNotes);
     document.getElementById('teacherFilter').addEventListener('change', filterNotes);
     document.getElementById('authorFilter').addEventListener('input', filterNotes);
+    
+    // Clear errors on input focus
+    document.getElementById('loginEmail').addEventListener('input', () => clearError('loginEmailError'));
+    document.getElementById('loginPassword').addEventListener('input', () => clearError('loginPasswordError'));
+    document.getElementById('signupName').addEventListener('input', () => clearError('signupNameError'));
+    document.getElementById('signupEmail').addEventListener('input', () => clearError('signupEmailError'));
+    document.getElementById('signupPassword').addEventListener('input', () => clearError('signupPasswordError'));
+    document.getElementById('signupStudentId').addEventListener('input', () => clearError('signupStudentIdError'));
 }
 
 // Display notes
@@ -862,11 +935,9 @@ function displayNotes(notes) {
             <div class="note-content" id="content-${note.id}">
                 ${note.content.substring(0, 150)}${note.content.length > 150 ? '...' : ''}
             </div>
-            ${note.content.length > 150 ? `
-                <button class="expand-btn" onclick="showNotePage(${note.id})">
-                    Read More
-                </button>
-            ` : ''}
+            <button class="expand-btn" onclick="showNotePage(${note.id})">
+                Read More
+            </button>
             <div class="note-footer">
                 <div class="note-author">By: ${note.author}</div>
                 <div class="rating-section">
@@ -924,23 +995,6 @@ function generateStars(rating, noteId, isClickable) {
     return stars;
 }
 
-// Toggle expand/collapse note content
-function toggleExpand(event, noteId) {
-    const contentElement = document.getElementById(`content-${noteId}`);
-    const note = notesData.find(n => n.id === noteId);
-    const button = event.target;
-
-    if (contentElement.classList.contains('expanded')) {
-        contentElement.innerHTML = note.content.substring(0, 150) + '...';
-        contentElement.classList.remove('expanded');
-        button.textContent = 'Read More';
-    } else {
-        contentElement.innerHTML = note.content;
-        contentElement.classList.add('expanded');
-        button.textContent = 'Read Less';
-    }
-}
-
 // Add a user rating to a note
 function addRating(noteId, rating) {
     // Check if user is logged in - try to restore from localStorage if needed
@@ -985,9 +1039,6 @@ function addRating(noteId, rating) {
         updateAverageRating();
         displayNotes(filterNotesData());
         saveToStorage(); // Save rating data
-        
-        // Show confirmation
-        alert(`Thank you for rating this note ${rating} stars! Roll Tide!`);
     }
 }
 
@@ -1016,12 +1067,6 @@ function handleUpload(e) {
         return;
     }
     
-    // Check note limit (5 notes per user)
-    if (userNotes[currentUser.id] >= 5) {
-        alert('You have reached the maximum of 5 notes per user. Please delete some notes before uploading new ones.');
-        return;
-    }
-    
     const newNote = {
         id: notesData.length + 1,
         title: document.getElementById('noteTitle').value,
@@ -1044,12 +1089,8 @@ function handleUpload(e) {
     updateAverageRating();
     saveToStorage(); // Save new note and user data
     
-    // Show success message
-    alert(`Note uploaded successfully! Roll Tide! (${userNotes[currentUser.id]}/5 notes used)`);
-    
-    // Switch to browse section
-    showSection('browse');
-    displayNotes(notesData);
+    // Redirect to the new note's page
+    showNotePage(newNote.id);
 }
 
 // Search functionality
@@ -1097,31 +1138,104 @@ function showLogin() {
 
 function handleLogin(e) {
     e.preventDefault();
+    
+    // Clear previous errors
+    clearError('loginEmailError');
+    clearError('loginPasswordError');
+    
     const email = document.getElementById('loginEmail').value;
     const password = document.getElementById('loginPassword').value;
     
-    const user = users.find(u => u.email === email && u.password === password);
-    if (user) {
-        currentUser = user;
-        document.getElementById('loginLink').textContent = `Welcome, ${user.name}`;
-        document.getElementById('loginLink').onclick = logout;
-        saveToStorage(); // Save login state
-        alert('Login successful! Roll Tide!');
-        showSection('home');
-    } else {
-        alert('Invalid email or password');
+    // Check if email exists
+    const user = users.find(u => u.email === email);
+    if (!user) {
+        showError('loginEmailError', 'Email not found. Please check your email address or sign up for a new account.');
+        return;
     }
+    
+    // Check if password is correct for the email
+    if (user.password !== password) {
+        showError('loginPasswordError', 'Incorrect password. Please try again.');
+        return;
+    }
+    
+    // Login successful
+    currentUser = user;
+    document.getElementById('loginLink').textContent = `Welcome, ${user.name}`;
+    document.getElementById('loginLink').onclick = showMyNotes;
+    document.getElementById('logoutBtn').style.display = 'inline-block';
+    saveToStorage(); // Save login state
+    clearForm('loginFormElement'); // Clear form after successful login
+    showSection('home');
 }
 
 function handleSignup(e) {
     e.preventDefault();
-    const name = document.getElementById('signupName').value;
-    const email = document.getElementById('signupEmail').value;
-    const password = document.getElementById('signupPassword').value;
-    const studentId = document.getElementById('signupStudentId').value;
     
+    // Clear previous errors
+    clearError('signupNameError');
+    clearError('signupEmailError');
+    clearError('signupPasswordError');
+    clearError('signupStudentIdError');
+    
+    const name = document.getElementById('signupName').value.trim();
+    const email = document.getElementById('signupEmail').value.trim();
+    const password = document.getElementById('signupPassword').value;
+    const studentId = document.getElementById('signupStudentId').value.trim();
+    
+    let hasErrors = false;
+    
+    // Validate required fields
+    if (!name) {
+        showError('signupNameError', 'Please enter your full name.');
+        hasErrors = true;
+    }
+    
+    if (!email) {
+        showError('signupEmailError', 'Please enter your email address.');
+        hasErrors = true;
+    }
+    
+    if (!password) {
+        showError('signupPasswordError', 'Please enter a password.');
+        hasErrors = true;
+    }
+    
+    if (!studentId) {
+        showError('signupStudentIdError', 'Please enter your CWID.');
+        hasErrors = true;
+    }
+    
+    if (hasErrors) return;
+    
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+        showError('signupEmailError', 'Please enter a valid email address.');
+        return;
+    }
+    
+    // Validate password length
+    if (password.length < 6) {
+        showError('signupPasswordError', 'Password must be at least 6 characters long.');
+        return;
+    }
+    
+    // Validate CWID (should be numbers only)
+    if (!/^\d+$/.test(studentId)) {
+        showError('signupStudentIdError', 'CWID must contain only numbers.');
+        return;
+    }
+    
+    // Check if email already exists
     if (users.find(u => u.email === email)) {
-        alert('Email already registered');
+        showError('signupEmailError', 'This email is already registered. Please use a different email or try logging in.');
+        return;
+    }
+    
+    // Check if CWID already exists
+    if (users.find(u => u.studentId === studentId)) {
+        showError('signupStudentIdError', 'This CWID is already registered. Please check your CWID or contact support.');
         return;
     }
     
@@ -1130,7 +1244,7 @@ function handleSignup(e) {
     userNotes[newUser.id] = 0; // Initialize note count
     
     saveToStorage(); // Save new user data
-    alert('Account created successfully! Roll Tide!');
+    clearForm('signupFormElement'); // Clear form after successful signup
     showLogin();
 }
 
@@ -1138,8 +1252,76 @@ function logout() {
     currentUser = null;
     document.getElementById('loginLink').textContent = 'Login';
     document.getElementById('loginLink').onclick = null;
+    document.getElementById('logoutBtn').style.display = 'none';
     saveToStorage(); // Save logout state
     showSection('home');
+}
+
+// Show user's posted notes
+function showMyNotes() {
+    if (!currentUser) {
+        showSection('login');
+        return;
+    }
+    
+    const userNotes = notesData.filter(note => note.author === currentUser.name);
+    
+    const container = document.getElementById('myNotesContainer');
+    const noNotesDiv = document.getElementById('noMyNotes');
+    
+    if (userNotes.length === 0) {
+        container.innerHTML = '';
+        noNotesDiv.style.display = 'block';
+    } else {
+        noNotesDiv.style.display = 'none';
+        container.innerHTML = userNotes.map(note => `
+            <div class="note-card">
+                <div class="note-header">
+                    <div>
+                        <div class="note-title">${note.title}</div>
+                        <div class="note-meta">
+                            <span class="meta-tag">${note.class}</span>
+                            <span class="meta-tag topic">${note.topic}</span>
+                            <span class="meta-tag teacher">${note.teacher}</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="note-content" id="content-${note.id}">
+                    ${note.content.substring(0, 150)}${note.content.length > 150 ? '...' : ''}
+                </div>
+                <button class="expand-btn" onclick="showNotePage(${note.id})">
+                    Read More
+                </button>
+                <div class="note-footer">
+                    <div class="note-author">By: ${note.author}</div>
+                    <div class="rating-section">
+                        <div class="current-rating">
+                            <span class="rating-label">Current: </span>
+                            <span class="rating-stars">${generateStars(note.rating, note.id, false)}</span>
+                            <span class="rating-text">(${note.rating.toFixed(1)})</span>
+                        </div>
+                        <div class="add-rating">
+                            ${currentUser && noteRatings[note.id] && noteRatings[note.id][currentUser.id] ? 
+                                `<span class="rating-label">Your Rating: </span>
+                                 <div class="rating" data-note-id="${note.id}">
+                                     ${generateStars(noteRatings[note.id][currentUser.id], note.id, true)}
+                                 </div>` :
+                                currentUser ? 
+                                    `<div class="rating" data-note-id="${note.id}">
+                                        ${generateStars(0, note.id, true)}
+                                    </div>
+                                    <span class="rating-label">Rate this note</span>` :
+                                    `<span class="login-prompt">Login to rate notes</span>`
+                            }
+                        </div>
+                    </div>
+                    <div class="note-date">Posted: ${note.date}</div>
+                </div>
+            </div>
+        `).join('');
+    }
+    
+    showSection('mynotes');
 }
 
 // Individual note page
@@ -1151,10 +1333,10 @@ function showNotePage(noteId) {
     const notePageHTML = `
         <div class="note-page">
             <div class="container">
-                <div class="note-header">
-                    <button onclick="backToBrowse()" class="back-btn">← Back to Browse</button>
-                    <h1>${note.title}</h1>
-                </div>
+            <div class="note-header">
+                <button onclick="backToBrowse()" class="back-btn">← Back to Browse</button>
+                <h1>${note.title}</h1>
+            </div>
                 <div class="note-meta">
                     <span class="meta-tag">${note.class}</span>
                     <span class="meta-tag topic">${note.topic}</span>
@@ -1272,6 +1454,12 @@ function loadFromStorage() {
         noteRatings = JSON.parse(savedNoteRatings);
     }
     
+    // Load notes data
+    const savedNotesData = localStorage.getItem('rollTideNotesData');
+    if (savedNotesData) {
+        notesData = JSON.parse(savedNotesData);
+    }
+    
     // Load current user
     const savedCurrentUser = localStorage.getItem('rollTideCurrentUser');
     if (savedCurrentUser) {
@@ -1279,9 +1467,13 @@ function loadFromStorage() {
         // Update login link after DOM is ready
         setTimeout(() => {
             const loginLink = document.getElementById('loginLink');
+            const logoutBtn = document.getElementById('logoutBtn');
             if (loginLink) {
                 loginLink.textContent = `Welcome, ${currentUser.name}`;
-                loginLink.onclick = logout;
+                loginLink.onclick = showMyNotes;
+            }
+            if (logoutBtn) {
+                logoutBtn.style.display = 'inline-block';
             }
         }, 100);
     }
@@ -1292,6 +1484,7 @@ function saveToStorage() {
     localStorage.setItem('rollTideUsers', JSON.stringify(users));
     localStorage.setItem('rollTideUserNotes', JSON.stringify(userNotes));
     localStorage.setItem('rollTideNoteRatings', JSON.stringify(noteRatings));
+    localStorage.setItem('rollTideNotesData', JSON.stringify(notesData));
     if (currentUser) {
         localStorage.setItem('rollTideCurrentUser', JSON.stringify(currentUser));
     } else {

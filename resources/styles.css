@@ -65,6 +65,28 @@ body {
     padding-bottom: 2px;
 }
 
+.logout-btn {
+    background: #dc3545;
+    color: white !important;
+    border: none;
+    padding: 0.75rem 1.5rem;
+    border-radius: 25px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    text-decoration: none;
+    display: inline-block;
+}
+
+.logout-btn:hover {
+    background: #c82333;
+    color: white !important;
+    transform: translateY(-2px);
+    opacity: 1;
+    border-bottom: none;
+    padding-bottom: 0.75rem;
+}
+
 /* Hero Section */
 .hero {
     background: white;
@@ -408,10 +430,6 @@ body {
     position: relative;
 }
 
-.note-content.expanded {
-    max-height: none;
-}
-
 .note-footer {
     padding-top: 1rem;
     border-top: 1px solid #e0e0e0;
@@ -601,6 +619,23 @@ body {
     background: #7a1428;
 }
 
+/* Error Messages */
+.error-message {
+    color: #dc3545;
+    font-size: 0.875rem;
+    margin-top: 0.25rem;
+    display: none;
+}
+
+.error-message.show {
+    display: block;
+}
+
+.form-group input.error {
+    border-color: #dc3545;
+    box-shadow: 0 0 0 0.2rem rgba(220, 53, 69, 0.25);
+}
+
 /* Footer */
 .footer {
     background: #333;
@@ -737,6 +772,7 @@ section.active {
 .back-btn:hover {
     background: #7a1428;
 }
+
 
 .note-page h1 {
     color: #9E1B32;

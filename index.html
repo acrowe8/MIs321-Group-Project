@@ -21,6 +21,7 @@
                 <a href="#browse" class="nav-link">Browse</a>
                 <a href="#upload" class="nav-link">Upload</a>
                 <a href="#login" class="nav-link" id="loginLink">Login</a>
+                <button id="logoutBtn" class="nav-link logout-btn" onclick="logout()" style="display: none;">Logout</button>
             </nav>
         </div>
     </header>
@@ -136,10 +137,12 @@
                         <div class="form-group">
                             <label for="loginEmail">Email</label>
                             <input type="email" id="loginEmail" required>
+                            <div id="loginEmailError" class="error-message"></div>
                         </div>
                         <div class="form-group">
                             <label for="loginPassword">Password</label>
                             <input type="password" id="loginPassword" required>
+                            <div id="loginPasswordError" class="error-message"></div>
                         </div>
                         <button type="submit" class="submit-btn">Login</button>
                     </form>
@@ -152,18 +155,22 @@
                         <div class="form-group">
                             <label for="signupName">Full Name</label>
                             <input type="text" id="signupName" required>
+                            <div id="signupNameError" class="error-message"></div>
                         </div>
                         <div class="form-group">
                             <label for="signupEmail">Email</label>
                             <input type="email" id="signupEmail" required>
+                            <div id="signupEmailError" class="error-message"></div>
                         </div>
                         <div class="form-group">
                             <label for="signupPassword">Password</label>
                             <input type="password" id="signupPassword" required>
+                            <div id="signupPasswordError" class="error-message"></div>
                         </div>
                         <div class="form-group">
-                            <label for="signupStudentId">Student ID</label>
-                            <input type="text" id="signupStudentId" required>
+                            <label for="signupStudentId">CWID</label>
+                            <input type="text" id="signupStudentId" pattern="[0-9]*" inputmode="numeric" required>
+                            <div id="signupStudentIdError" class="error-message"></div>
                         </div>
                         <button type="submit" class="submit-btn">Sign Up</button>
                     </form>
@@ -227,6 +234,19 @@
                 </div>
                 <button type="submit" class="submit-btn">Upload Notes</button>
             </form>
+        </div>
+    </section>
+
+    <!-- My Notes Section -->
+    <section id="mynotes" class="my-notes-section">
+        <div class="container">
+            <h2>My Posted Notes</h2>
+            <div id="myNotesContainer" class="notes-container">
+                <!-- User's notes will be displayed here -->
+            </div>
+            <div id="noMyNotes" class="no-results" style="display: none;">
+                You haven't posted any notes yet. <a href="#" onclick="showSection('upload')">Upload your first note!</a>
+            </div>
         </div>
     </section>
 
