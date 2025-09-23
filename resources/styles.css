@@ -49,6 +49,9 @@ body {
 .nav {
     display: flex;
     gap: 2rem;
+    align-items: center;
+    justify-content: flex-end;
+    height: 100%;
 }
 
 .nav-link {
@@ -56,6 +59,36 @@ body {
     text-decoration: none;
     font-weight: 500;
     transition: opacity 0.3s;
+    display: inline-block;
+    vertical-align: middle;
+    line-height: 1.5;
+    border: none;
+    background: none;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: inherit;
+    padding: 0;
+    margin: 0;
+    box-sizing: border-box;
+    height: auto;
+    width: auto;
+}
+
+/* Specific styling for button elements in nav */
+button.nav-link {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    text-align: left;
+    vertical-align: baseline;
+    line-height: inherit;
+    font-size: inherit;
+    font-family: inherit;
+    font-weight: inherit;
+    color: inherit;
+    text-decoration: inherit;
+    display: inline-block;
+    vertical-align: middle;
 }
 
 .nav-link:hover,
@@ -65,6 +98,7 @@ body {
     padding-bottom: 2px;
 }
 
+<<<<<<< HEAD
 .logout-btn {
     background: #dc3545;
     color: white !important;
@@ -86,6 +120,8 @@ body {
     border-bottom: none;
     padding-bottom: 0.75rem;
 }
+=======
+>>>>>>> 1db71277ea6ded638b59476b2d9eb2a0ab9f2f65
 
 /* Hero Section */
 .hero {
@@ -614,6 +650,14 @@ body {
     transition: border-color 0.3s;
 }
 
+.file-help {
+    display: block;
+    margin-top: 5px;
+    font-size: 0.9rem;
+    color: #666;
+    font-style: italic;
+}
+
 .form-group input:focus,
 .form-group select:focus,
 .form-group textarea:focus {
@@ -771,10 +815,16 @@ section.active {
 .note-page {
     padding: 2rem 0;
     background: white;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
 }
 
 .note-header {
     margin-bottom: 2rem;
+    text-align: center;
+    max-width: 800px;
+    width: 100%;
 }
 
 .back-btn {
@@ -804,6 +854,7 @@ section.active {
     flex-wrap: wrap;
     gap: 0.5rem;
     margin-bottom: 2rem;
+    justify-content: center;
 }
 
 .note-content-full {
@@ -814,6 +865,76 @@ section.active {
     font-size: 1.1rem;
     margin-bottom: 2rem;
     white-space: pre-wrap;
+    max-width: 800px;
+    margin-left: auto;
+    margin-right: auto;
+    text-align: left;
+}
+
+.note-content-full p {
+    margin-bottom: 1.5rem;
+    text-indent: 1.5rem;
+}
+
+.note-content-full h1,
+.note-content-full h2,
+.note-content-full h3,
+.note-content-full h4,
+.note-content-full h5,
+.note-content-full h6 {
+    margin-top: 2rem;
+    margin-bottom: 1rem;
+    color: #9E1B32;
+    text-align: left;
+}
+
+.note-content-full ul,
+.note-content-full ol {
+    margin: 1rem 0;
+    padding-left: 2rem;
+}
+
+.note-content-full li {
+    margin-bottom: 0.5rem;
+}
+
+.file-attachment {
+    background: #e3f2fd;
+    border: 1px solid #2196f3;
+    border-radius: 5px;
+    padding: 8px 12px;
+    margin-top: 10px;
+    font-size: 0.9rem;
+    color: #1976d2;
+}
+
+.file-attachment i {
+    margin-right: 5px;
+}
+
+.file-attachment-full {
+    background: #f8f9fa;
+    border: 2px solid #9E1B32;
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-top: 2rem;
+}
+
+.file-attachment-full h4 {
+    color: #9E1B32;
+    margin-bottom: 1rem;
+    font-size: 1.2rem;
+}
+
+.file-attachment-full h4 i {
+    margin-right: 8px;
+}
+
+.file-info {
+    background: white;
+    padding: 1rem;
+    border-radius: 5px;
+    border: 1px solid #ddd;
 }
 
 .note-footer-full {
@@ -822,6 +943,8 @@ section.active {
     align-items: center;
     padding: 1rem 0;
     border-top: 2px solid #e0e0e0;
+    max-width: 800px;
+    width: 100%;
 }
 
 .note-date {

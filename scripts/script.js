@@ -934,6 +934,7 @@ function displayNotes(notes) {
             </div>
             <div class="note-content" id="content-${note.id}">
                 ${note.content.substring(0, 150)}${note.content.length > 150 ? '...' : ''}
+                ${note.hasFile ? `<div class="file-attachment"><i class="fas fa-paperclip"></i> ${note.fileName}</div>` : ''}
             </div>
             <button class="expand-btn" onclick="showNotePage(${note.id})">
                 Read More
@@ -1067,6 +1068,12 @@ function handleUpload(e) {
         return;
     }
     
+<<<<<<< HEAD
+=======
+    const fileInput = document.getElementById('noteFile');
+    const uploadedFile = fileInput.files[0];
+    
+>>>>>>> 1db71277ea6ded638b59476b2d9eb2a0ab9f2f65
     const newNote = {
         id: notesData.length + 1,
         title: document.getElementById('noteTitle').value,
@@ -1076,7 +1083,10 @@ function handleUpload(e) {
         teacher: document.getElementById('noteTeacher').value,
         content: document.getElementById('noteContent').value,
         rating: 0,
-        date: new Date().toISOString().split('T')[0]
+        date: new Date().toISOString().split('T')[0],
+        hasFile: uploadedFile ? true : false,
+        fileName: uploadedFile ? uploadedFile.name : null,
+        fileSize: uploadedFile ? uploadedFile.size : null
     };
 
     notesData.push(newNote);
@@ -1342,9 +1352,18 @@ function showNotePage(noteId) {
                     <span class="meta-tag topic">${note.topic}</span>
                     <span class="meta-tag teacher">${note.teacher}</span>
                 </div>
-                <div class="note-content-full">
-                    ${note.content}
-                </div>
+             <div class="note-content-full">
+                 ${note.content}
+                 ${note.hasFile ? `
+                     <div class="file-attachment-full">
+                         <h4><i class="fas fa-paperclip"></i> Attached File</h4>
+                         <div class="file-info">
+                             <strong>File:</strong> ${note.fileName}<br>
+                             <strong>Size:</strong> ${(note.fileSize / 1024).toFixed(1)} KB
+                         </div>
+                     </div>
+                 ` : ''}
+             </div>
                 <div class="note-footer-full">
                     <div class="note-author">By: ${note.author}</div>
                     <div class="note-date">Posted: ${note.date}</div>

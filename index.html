@@ -36,14 +36,18 @@
         <div class="container">
             <div class="logo">
                 <i class="fas fa-graduation-cap"></i>
-                <h1>Roll Tide MIS Notes</h1>
+                <h1>MIS Share</h1>
             </div>
             <nav class="nav">
                 <a href="#home" class="nav-link active">Home</a>
                 <a href="#browse" class="nav-link">Browse</a>
                 <a href="#upload" class="nav-link">Upload</a>
                 <a href="#login" class="nav-link" id="loginLink">Login</a>
+<<<<<<< HEAD
                 <button id="logoutBtn" class="nav-link logout-btn" onclick="logout()" style="display: none;">Logout</button>
+=======
+                <button id="logoutBtn" class="nav-link" onclick="logout()" style="display: none;">Logout</button>
+>>>>>>> 1db71277ea6ded638b59476b2d9eb2a0ab9f2f65
             </nav>
         </div>
     </header>
@@ -254,6 +258,11 @@
                     <label for="noteContent">Notes Content</label>
                     <textarea id="noteContent" rows="10" required></textarea>
                 </div>
+                <div class="form-group">
+                    <label for="noteFile">Upload File (Optional)</label>
+                    <input type="file" id="noteFile" name="noteFile" accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png" />
+                    <small class="file-help">Supported formats: PDF, DOC, DOCX, TXT, JPG, PNG (Max 10MB)</small>
+                </div>
                 <button type="submit" class="submit-btn">Upload Notes</button>
             </form>
         </div>
@@ -275,11 +284,19 @@
     <!-- Footer -->
     <footer class="footer">
         <div class="container">
+<<<<<<< HEAD
             <p>&copy; 2025 Roll Tide Notes - University of Alabama MIS Students</p>
+=======
+            <p>&copy; 2025 MIS Share - University of Alabama MIS Students</p>
+>>>>>>> 1db71277ea6ded638b59476b2d9eb2a0ab9f2f65
         </div>
     </footer>
 
     <script src="scripts/script.js"></script>
 </body>
+<<<<<<< HEAD
 </html>
 >>>>>>> main
+=======
+</html>
+>>>>>>> 1db71277ea6ded638b59476b2d9eb2a0ab9f2f65
