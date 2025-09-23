@@ -17,9 +17,15 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // Initialize all website functionality
 async function initializeWebsite() {
+    // Prevent multiple initializations
+    if (window.websiteInitialized) {
+        return;
+    }
+    
     try {
+        window.websiteInitialized = true;
+        
         // First, verify authentication status before any page rendering
-        console.log('Verifying authentication status...');
         await verifyAuthenticationStatus();
         
         // Initialize core functionality
@@ -52,7 +58,6 @@ async function initializeWebsite() {
         }
         
         // Final navigation update to ensure all pages have correct state
-        console.log('Final navigation update...');
         await updateNavigation();
         
     } catch (error) {
@@ -65,11 +70,14 @@ async function initializeWebsite() {
 // Determine current page based on URL
 function getCurrentPage() {
     const path = window.location.pathname;
-    if (path.includes('note.html')) return 'note';
-    if (path.includes('profile.html')) return 'profile';
-    if (path.includes('search.html')) return 'search';
-    if (path.includes('upload.html')) return 'upload';
-    if (path.includes('login.html')) return 'login';
+    if (path.includes('note.html') || path.includes('/note')) return 'note';
+    if (path.includes('profile.html') || path.includes('/profile')) return 'profile';
+    if (path.includes('search.html') || path.includes('/search')) return 'search';
+    if (path.includes('upload.html') || path.includes('/upload')) return 'upload';
+    if (path.includes('login.html') || path.includes('/login')) return 'login';
+    if (path.includes('home.html') || path.includes('/home')) return 'main';
+    
+    // For root path or any other path, return 'main' (home page)
     return 'main';
 }
 
@@ -464,21 +472,14 @@ function setupAuthentication() {
     checkAuthenticationStatus();
     setupAuthRedirects();
     setupLogout();
+    setupAuthTabs();
 }
 
 // Check if user is logged in
 function isLoggedIn() {
     const apiService = window.apiService;
-    console.log('isLoggedIn check on page:', window.location.pathname);
-    console.log('isLoggedIn check:', {
-        apiService: !!apiService,
-        isInitialized: apiService?.isInitialized,
-        hasToken: !!(apiService?.token),
-        token: apiService?.token ? 'exists' : 'null'
-    });
     
     if (!apiService) {
-        console.log('No API service available');
         return false;
     }
     
@@ -486,9 +487,7 @@ function isLoggedIn() {
     const hasToken = apiService.token !== null && apiService.token !== undefined;
     const isInitialized = apiService.isInitialized;
     
-    const result = hasToken && isInitialized;
-    console.log('isLoggedIn result:', result, 'hasToken:', hasToken, 'isInitialized:', isInitialized);
-    return result;
+    return hasToken && isInitialized;
 }
 
 // User data storage system
@@ -512,12 +511,12 @@ function saveUserData(userData) {
         // Continue to next method
     }
     
-    // Try localStorage as fallback
+    // Try sessionStorage as fallback
     try {
         if (userData) {
-            localStorage.setItem('misShareUser', JSON.stringify(userData));
+            sessionStorage.setItem('misShareUser', JSON.stringify(userData));
         } else {
-            localStorage.removeItem('misShareUser');
+            sessionStorage.removeItem('misShareUser');
         }
     } catch (error) {
         // Continue to next method
@@ -534,19 +533,9 @@ function saveUserData(userData) {
 function loadUserData() {
     initializeUserStorage();
     
-    // Try sessionStorage first
+    // Try sessionStorage
     try {
         const storedUser = sessionStorage.getItem('misShareUser');
-        if (storedUser) {
-            return JSON.parse(storedUser);
-        }
-    } catch (error) {
-        // Continue to next method
-    }
-    
-    // Try localStorage as fallback
-    try {
-        const storedUser = localStorage.getItem('misShareUser');
         if (storedUser) {
             return JSON.parse(storedUser);
         }
@@ -605,77 +594,60 @@ async function logoutUser() {
         // Show notification
         showNotification('You have been logged out successfully.', 'info');
         
-        // Redirect to login page after a short delay
+        // Redirect to login page after a short delay (only if not already on login page)
         setTimeout(() => {
-            const isInPagesFolder = window.location.pathname.includes('Pages/');
-            window.location.href = isInPagesFolder ? 'login.html' : 'Pages/login.html';
+            const currentPath = window.location.pathname;
+            if (!currentPath.includes('login.html')) {
+                const isInPagesFolder = currentPath.includes('Pages/');
+                window.location.href = isInPagesFolder ? 'login.html' : 'Pages/login.html';
+            }
         }, 1000);
         
     } catch (error) {
         console.error('Logout error:', error);
-        // Even if logout fails, clear local data and redirect
+        // Even if logout fails, clear local data and redirect (only if not already on login page)
         saveUserData(null);
-        const isInPagesFolder = window.location.pathname.includes('Pages/');
-        window.location.href = isInPagesFolder ? 'login.html' : 'Pages/login.html';
+        const currentPath = window.location.pathname;
+        if (!currentPath.includes('login.html')) {
+            const isInPagesFolder = currentPath.includes('Pages/');
+            window.location.href = isInPagesFolder ? 'login.html' : 'Pages/login.html';
+        }
     }
 }
 
 // Initialize authentication state
 async function initializeAuthState() {
     try {
-        console.log('Initializing authentication state...');
-        console.log('Current page:', window.location.pathname);
-        
         // Check session storage directly first
         const sessionToken = sessionStorage.getItem('misShareToken');
         const sessionUser = sessionStorage.getItem('misShareUser');
-        console.log('Session storage check - Token:', !!sessionToken, 'User:', !!sessionUser);
-        console.log('Session token value:', sessionToken ? 'exists' : 'null');
-        console.log('Session user value:', sessionUser ? 'exists' : 'null');
-        console.log('Current location:', window.location.href);
-        console.log('Current origin:', window.location.origin);
-        console.log('Current pathname:', window.location.pathname);
-        
-        // Check all session storage keys
-        console.log('All session storage keys:', Object.keys(sessionStorage));
-        console.log('All session storage values:', Object.fromEntries(Object.entries(sessionStorage)));
         
         // Wait for API service to be available and initialized
         if (window.apiService) {
-            console.log('API service exists, waiting for initialization...');
-            await window.apiService.waitForInitialization();
-            console.log('API service initialized');
-            console.log('API service token before refresh:', !!window.apiService.token);
+            // Since API service now initializes synchronously, just check if it's ready
+            if (!window.apiService.isInitialized) {
+                console.warn('API service not initialized, skipping auth state initialization');
+                return;
+            }
             
             // Try to refresh token from storage
-            const refreshResult = window.apiService.refreshTokenFromStorage();
-            console.log('Token refresh result:', refreshResult);
-            console.log('Token after refresh:', !!window.apiService.token);
-            console.log('Token value after refresh:', window.apiService.token ? 'exists' : 'null');
+            window.apiService.refreshTokenFromStorage();
             
             // Check if we have a stored token and user data
             const storedToken = window.apiService.token;
             const storedUser = loadUserData();
             
-            console.log('Final stored token:', !!storedToken);
-            console.log('Final stored user:', !!storedUser);
-            
             if (storedToken && storedUser) {
                 // Token is already loaded and validated by API service
-                console.log('User is logged in, updating user info');
                 await updateUserInfo();
             } else {
                 // Clear any invalid data
-                console.log('No valid token/user data, clearing');
                 window.apiService.clearToken();
                 saveUserData(null);
             }
             
             // Update navigation after authentication state is determined
-            console.log('About to update navigation, final token:', !!window.apiService?.token);
             await updateNavigation();
-        } else {
-            console.log('No API service available!');
         }
     } catch (error) {
         console.error('Failed to initialize auth state:', error);
@@ -692,19 +664,11 @@ async function checkAuthenticationStatus() {
 // Update navigation based on login status
 async function updateNavigation() {
     const userLoggedIn = isLoggedIn();
-    console.log('updateNavigation called, userLoggedIn:', userLoggedIn);
     
     const profileNavItem = document.getElementById('profileNavItem');
     const loginNavItem = document.getElementById('loginNavItem');
     const logoutNavItem = document.getElementById('logoutNavItem');
     const getStartedBtn = document.getElementById('getStartedBtn');
-    
-    console.log('Navigation elements found:', {
-        profileNavItem: !!profileNavItem,
-        loginNavItem: !!loginNavItem,
-        logoutNavItem: !!logoutNavItem,
-        getStartedBtn: !!getStartedBtn
-    });
 
     if (profileNavItem) {
         profileNavItem.style.display = userLoggedIn ? 'block' : 'none';
@@ -728,18 +692,13 @@ async function updateNavigation() {
         logoutNavItem.style.display = userLoggedIn ? 'block' : 'none';
     }
     if (getStartedBtn) {
-        console.log('Updating getStartedBtn, userLoggedIn:', userLoggedIn);
         if (userLoggedIn) {
-            getStartedBtn.innerHTML = '<i class="bi bi-upload me-2"></i>Upload Note';
+            getStartedBtn.innerHTML = '<i class="bi bi-upload me-2"></i>Upload Notes';
             getStartedBtn.href = 'upload.html';
-            console.log('Set getStartedBtn to Upload Note');
         } else {
             getStartedBtn.innerHTML = '<i class="bi bi-person-plus me-2"></i>Get Started';
             getStartedBtn.href = 'login.html';
-            console.log('Set getStartedBtn to Get Started');
         }
-    } else {
-        console.log('getStartedBtn not found');
     }
     
     // Update main page content if we're on the main page
@@ -763,9 +722,12 @@ function setupAuthRedirects() {
             if (!loggedIn) {
                 e.preventDefault();
                 showNotification('Please log in to upload notes.', 'warning');
-                // Navigate to login page
-                const isInPagesFolder = window.location.pathname.includes('Pages/');
-                window.location.href = isInPagesFolder ? 'login.html' : 'Pages/login.html';
+                // Navigate to login page (only if not already on login page)
+                const currentPath = window.location.pathname;
+                if (!currentPath.includes('login.html')) {
+                    const isInPagesFolder = currentPath.includes('Pages/');
+                    window.location.href = isInPagesFolder ? 'login.html' : 'Pages/login.html';
+                }
             }
         });
     }
@@ -780,6 +742,64 @@ function setupLogout() {
             logoutUser();
         });
     }
+}
+
+// Setup authentication tabs
+function setupAuthTabs() {
+    // Clear signup form when signup tab is activated
+    const signupTab = document.querySelector('[data-bs-target="#signup"]');
+    if (signupTab) {
+        signupTab.addEventListener('shown.bs.tab', function() {
+            clearSignupForm();
+        });
+    }
+    
+    // Clear login form when login tab is activated (optional)
+    const loginTab = document.querySelector('[data-bs-target="#login"]');
+    if (loginTab) {
+        loginTab.addEventListener('shown.bs.tab', function() {
+            clearLoginForm();
+        });
+    }
+}
+
+// Clear signup form
+function clearSignupForm() {
+    const signupFields = [
+        'signupFirstName',
+        'signupLastName', 
+        'signupEmail',
+        'signupCWID',
+        'signupPassword',
+        'signupConfirmPassword'
+    ];
+    
+    signupFields.forEach(fieldId => {
+        const field = document.getElementById(fieldId);
+        if (field) {
+            field.value = '';
+            field.classList.remove('is-valid', 'is-invalid');
+        }
+    });
+    
+    // Hide any error messages
+    hideFormError('signup');
+}
+
+// Clear login form
+function clearLoginForm() {
+    const loginFields = ['loginEmail', 'loginPassword'];
+    
+    loginFields.forEach(fieldId => {
+        const field = document.getElementById(fieldId);
+        if (field) {
+            field.value = '';
+            field.classList.remove('is-valid', 'is-invalid');
+        }
+    });
+    
+    // Hide any error messages
+    hideFormError('login');
 }
 
 // ===== DATA CLEARING FUNCTIONALITY =====
@@ -831,7 +851,7 @@ async function loadNote() {
     try {
         const note = await apiService.getNote(noteId);
         if (note) {
-            displayNote(note);
+            await displayNote(note);
             await loadRelatedNotes(note);
         } else {
             showNotification('Note not found.', 'danger');
@@ -843,9 +863,10 @@ async function loadNote() {
 }
 
 // Display note information
-function displayNote(note) {
+async function displayNote(note) {
     // Store author CWID for profile navigation
     window.currentNoteAuthorCwid = note.authorId;
+    window.currentNote = note; // Store current note for editing
     
     // Update note header
     const noteTitle = document.getElementById('noteTitle');
@@ -859,7 +880,16 @@ function displayNote(note) {
     if (noteTitle) noteTitle.textContent = note.title || 'Untitled';
     if (noteTopic) noteTopic.textContent = note.topic || 'General';
     if (noteClass) noteClass.textContent = note.class || 'MIS';
-    if (noteYear) noteYear.textContent = note.year || 'N/A';
+    if (noteYear) {
+        // Hide year badge initially, show after API call completes
+        noteYear.style.display = 'none';
+        // Handle multiple years by taking only the first one
+        const year = note.year || 'N/A';
+        const firstYear = year.toString().split(/[,\s]+/)[0];
+        noteYear.textContent = firstYear;
+        // Show the year badge after setting the content
+        noteYear.style.display = 'inline-block';
+    }
     if (noteAuthor) noteAuthor.textContent = note.authorName || 'Unknown';
     if (noteDate) noteDate.textContent = `Posted on ${formatDate(note.createdAt)}`;
     if (noteContent) {
@@ -870,10 +900,20 @@ function displayNote(note) {
     
     // Update author info in sidebar
     const authorName = document.getElementById('authorName');
+    const viewProfileBtn = document.getElementById('viewProfileBtn');
     
     if (authorName) authorName.textContent = note.authorName || 'Unknown';
+    if (viewProfileBtn) viewProfileBtn.textContent = 'View Profile';
     
+    // Show edit button if user owns this note
+    const editButtonContainer = document.getElementById('editButtonContainer');
+    const currentUser = await getCurrentUser();
     
+    if (editButtonContainer && currentUser && currentUser.cwid === note.authorId) {
+        editButtonContainer.style.display = 'block';
+    } else if (editButtonContainer) {
+        editButtonContainer.style.display = 'none';
+    }
 }
 
 
@@ -884,6 +924,18 @@ function setupNoteInteractions() {
     const viewProfileBtn = document.getElementById('viewProfileBtn');
     if (viewProfileBtn) {
         viewProfileBtn.addEventListener('click', handleViewProfile);
+    }
+    
+    // Setup edit note button
+    const editNoteBtn = document.getElementById('editNoteBtn');
+    if (editNoteBtn) {
+        editNoteBtn.addEventListener('click', handleEditNote);
+    }
+    
+    // Setup save note button
+    const saveNoteBtn = document.getElementById('saveNoteBtn');
+    if (saveNoteBtn) {
+        saveNoteBtn.addEventListener('click', handleSaveNote);
     }
 }
 
@@ -897,6 +949,85 @@ function handleViewProfile() {
         window.location.href = isInPagesFolder ? `profile.html?cwid=${authorCwid}` : `Pages/profile.html?cwid=${authorCwid}`;
     } else {
         showNotification('Author information not available.', 'warning');
+    }
+}
+
+// Handle edit note button click
+function handleEditNote() {
+    if (!window.currentNote) {
+        showNotification('No note data available.', 'danger');
+        return;
+    }
+    
+    // Populate the edit form with current note data
+    const editTitle = document.getElementById('editNoteTitle');
+    const editContent = document.getElementById('editNoteContent');
+    
+    if (editTitle) editTitle.value = window.currentNote.title || '';
+    if (editContent) editContent.value = window.currentNote.content || '';
+    
+    // Show the modal
+    const editModal = new bootstrap.Modal(document.getElementById('editNoteModal'));
+    editModal.show();
+}
+
+// Handle save note button click
+async function handleSaveNote() {
+    if (!window.currentNote) {
+        showNotification('No note data available.', 'danger');
+        return;
+    }
+    
+    const editTitle = document.getElementById('editNoteTitle');
+    const editContent = document.getElementById('editNoteContent');
+    
+    if (!editTitle || !editContent) {
+        showNotification('Form fields not found.', 'danger');
+        return;
+    }
+    
+    const title = editTitle.value.trim();
+    const content = editContent.value.trim();
+    
+    if (!title || !content) {
+        showNotification('Title and content are required.', 'danger');
+        return;
+    }
+    
+    try {
+        // Show loading state
+        const saveBtn = document.getElementById('saveNoteBtn');
+        const originalText = saveBtn.innerHTML;
+        saveBtn.innerHTML = '<i class="bi bi-hourglass-split me-2"></i>Saving...';
+        saveBtn.disabled = true;
+        
+        // Update the note
+        const updatedNote = await apiService.updateNote(window.currentNote.id, {
+            title: title,
+            content: content
+        });
+        
+        if (updatedNote) {
+            // Update the displayed note
+            window.currentNote = updatedNote;
+            displayNote(updatedNote);
+            
+            // Hide the modal
+            const editModal = bootstrap.Modal.getInstance(document.getElementById('editNoteModal'));
+            if (editModal) {
+                editModal.hide();
+            }
+            
+            showNotification('Note updated successfully!', 'success');
+        }
+    } catch (error) {
+        console.error('Failed to update note:', error);
+        showNotification('Failed to update note. Please try again.', 'danger');
+    } finally {
+        // Reset button state
+        const saveBtn = document.getElementById('saveNoteBtn');
+        saveBtn.innerHTML = originalText;
+        saveBtn.disabled = false;
     }
 }
 
@@ -960,19 +1091,22 @@ async function verifyAuthenticationStatus() {
             return;
         }
         
+        // Since API service now initializes synchronously, just check if it's ready
+        if (!window.apiService.isInitialized) {
+            console.log('API service not initialized yet, skipping verification');
+            return;
+        }
+        
         // Check if there's a stored token
         const storedToken = window.apiService.token;
         const storedUser = loadUserData();
         
         if (storedToken && storedUser) {
-            console.log('Found stored authentication, validating...');
             try {
                 // Validate token with server
                 const isValid = await window.apiService.validateToken();
                 if (isValid) {
-                    console.log('Authentication verified successfully');
                 } else {
-                    console.log('Token validation failed, clearing authentication');
                     window.apiService.clearToken();
                     saveUserData(null);
                 }
@@ -1019,14 +1153,24 @@ function formatDate(dateString) {
 
 // Initialize profile page functionality
 function initializeProfilePage() {
-    // Hide profile content initially
-    hideProfileContent();
+    // Hide all profile content initially
+    hideAllProfileContent();
     setupProfileFunctionality();
 }
 
 // ===== PROFILE FUNCTIONALITY =====
 
-// Hide profile content initially
+// Hide all profile content initially (including header)
+function hideAllProfileContent() {
+    const profileContent = document.querySelector('.profile-content');
+    if (profileContent) {
+        profileContent.classList.remove('ready');
+    }
+}
+
+
+
+// Hide profile content initially (tabs only)
 function hideProfileContent() {
     const profileTabs = document.getElementById('profileTabs');
     const profileTabContent = document.getElementById('profileTabContent');
@@ -1037,11 +1181,23 @@ function hideProfileContent() {
 
 // Show profile content after authentication
 function showProfileContent() {
+    // Show tabs and notes section
     const profileTabs = document.getElementById('profileTabs');
     const profileTabContent = document.getElementById('profileTabContent');
     
-    if (profileTabs) profileTabs.style.display = 'block';
-    if (profileTabContent) profileTabContent.style.display = 'block';
+    if (profileTabs) {
+        profileTabs.style.display = 'flex';
+    }
+    
+    if (profileTabContent) {
+        profileTabContent.style.display = 'block';
+    }
+    
+    // Show profile content
+    const profileContent = document.querySelector('.profile-content');
+    if (profileContent) {
+        profileContent.classList.add('ready');
+    }
 }
 
 // Setup profile functionality
@@ -1049,34 +1205,33 @@ function setupProfileFunctionality() {
     loadUserProfile();
     setupProfileTabs();
     setupEditProfileModal();
+    setupChangePasswordModal();
 }
 
 // Load user profile data
 async function loadUserProfile() {
     try {
-        console.log('loadUserProfile called');
-        
-        // Wait for API service to be properly initialized
-        if (window.apiService) {
-            await window.apiService.waitForInitialization();
-        } else {
+        // Check if API service is available and initialized
+        if (!window.apiService) {
             throw new Error('API service not available');
         }
         
+        if (!window.apiService.isInitialized) {
+            window.apiService.initializeSync();
+        }
+        
         const user = await getCurrentUser();
-        console.log('getCurrentUser returned:', user);
         
         // Get the profile owner from URL parameter or default to current user
         const urlParams = new URLSearchParams(window.location.search);
         const profileOwnerCwid = urlParams.get('cwid');
         
         if (profileOwnerCwid) {
-            // Viewing someone else's profile
-            console.log('Viewing profile for CWID:', profileOwnerCwid);
-            await loadProfileData(profileOwnerCwid, false); // false = not own profile
+            // Check if viewing own profile or someone else's profile
+            const isOwnProfile = user && user.cwid.toString() === profileOwnerCwid;
+            await loadProfileData(profileOwnerCwid, isOwnProfile);
         } else if (user) {
             // Viewing own profile - redirect to URL with CWID
-            console.log('Viewing own profile');
             const currentUrl = new URL(window.location);
             if (!currentUrl.searchParams.has('cwid')) {
                 currentUrl.searchParams.set('cwid', user.cwid);
@@ -1085,7 +1240,6 @@ async function loadUserProfile() {
             await loadProfileData(user.cwid, true); // true = own profile
         } else {
             // No user logged in and no profile specified
-            console.log('No user logged in and no profile specified');
             showNotification('Please specify a profile to view or log in to view your own profile.', 'info');
             showProfileContent(); // Show content even if no user to display error state
         }
@@ -1104,7 +1258,6 @@ async function loadUserProfile() {
 // Load profile data for a specific user
 async function loadProfileData(cwid, isOwnProfile) {
     try {
-        console.log('Loading profile data for CWID:', cwid, 'isOwnProfile:', isOwnProfile);
         
         // Get the profile owner's data
         const profileOwner = await apiService.getUser(cwid);
@@ -1117,11 +1270,17 @@ async function loadProfileData(cwid, isOwnProfile) {
         // Display the profile owner's information
         displayUserProfile(profileOwner);
         
+        // Control change password button visibility based on profile ownership
+        toggleChangePasswordButton(isOwnProfile);
+        
         // Load the profile owner's notes
         await loadUserNotes(cwid);
         
         // Hide the bookmarks tab since we removed bookmark functionality
         hideBookmarksTab();
+        
+        // Show all content only after all API calls are complete
+        showProfileContent();
         
     } catch (error) {
         console.error('Failed to load profile data:', error);
@@ -1148,6 +1307,18 @@ function toggleEditProfileButton(isOwnProfile) {
     // Edit profile functionality has been removed
 }
 
+// Show/hide Change Password button based on profile ownership
+function toggleChangePasswordButton(isOwnProfile) {
+    const changePasswordContainer = document.getElementById('changePasswordContainer');
+    if (changePasswordContainer) {
+        if (isOwnProfile) {
+            changePasswordContainer.style.display = 'block';
+        } else {
+            changePasswordContainer.style.display = 'none';
+        }
+    }
+}
+
 // Display user profile information
 function displayUserProfile(user) {
     const userName = document.getElementById('userName');
@@ -1158,6 +1329,12 @@ function displayUserProfile(user) {
     // Remove loading spinner
     if (profileSpinner) {
         profileSpinner.remove();
+    }
+    
+    // Show the user name container
+    const userNameContainer = document.getElementById('userNameContainer');
+    if (userNameContainer) {
+        userNameContainer.style.display = 'block';
     }
     
     if (userName) {
@@ -1174,18 +1351,28 @@ function displayUserProfile(user) {
         userBio.textContent = 'Welcome to my profile!'; // Default bio since bio property was removed
     }
     
-    // Show profile content after user data is loaded
-    showProfileContent();
+    // Don't show content here - wait for all API calls to complete
 }
 
 // Load user's notes
 async function loadUserNotes(userId) {
     try {
+        console.log('Loading user notes for userId:', userId);
+        console.log('API service available:', !!window.apiService);
+        console.log('API service token:', !!window.apiService?.token);
+        
         const notes = await apiService.getUserNotes(userId);
+        console.log('User notes loaded:', notes);
+        
         displayUserNotes(notes || []);
         updateNotesCount(notes?.length || 0);
     } catch (error) {
         console.error('Failed to load user notes:', error);
+        console.error('Error details:', {
+            message: error.message,
+            stack: error.stack,
+            userId: userId
+        });
         displayUserNotes([]);
     }
 }
@@ -1214,54 +1401,11 @@ function displayUserNotes(notes) {
     }
     
     notes.forEach(note => {
-        const noteCard = createProfileNoteCard(note);
+        const noteCard = createNoteCard(note, true); // Show delete button for profile page
         myNotesGrid.appendChild(noteCard);
     });
 }
 
-// Create note card for profile page
-function createProfileNoteCard(note) {
-    const col = document.createElement('div');
-    col.className = 'col-md-6 col-lg-4 mb-4';
-    
-    const card = document.createElement('div');
-    card.className = 'card h-100 shadow-sm';
-    
-    const cardBody = document.createElement('div');
-    cardBody.className = 'card-body d-flex flex-column';
-    
-    cardBody.innerHTML = `
-        <h5 class="card-title">${escapeHtml(note.title || 'Untitled')}</h5>
-        <p class="card-text text-muted small flex-grow-1">${escapeHtml(note.content?.substring(0, 100) || 'No content available')}${note.content?.length > 100 ? '...' : ''}</p>
-        <div class="mb-2">
-            <span class="badge bg-primary me-1">${escapeHtml(note.topic || 'General')}</span>
-            <span class="badge bg-secondary me-1">${escapeHtml(note.class || 'MIS')}</span>
-            <span class="badge bg-info">${note.year || 'N/A'}</span>
-        </div>
-        <div class="d-flex justify-content-between align-items-center">
-            <small class="text-muted">${formatDate(note.createdAt)}</small>
-        </div>
-    `;
-    
-    const cardFooter = document.createElement('div');
-    cardFooter.className = 'card-footer bg-transparent';
-    cardFooter.innerHTML = `
-        <div class="d-flex justify-content-between">
-            <a href="note.html?id=${note.id}" class="btn btn-outline-primary btn-sm">
-                <i class="bi bi-eye me-1"></i>View
-            </a>
-            <button class="btn btn-outline-danger btn-sm" onclick="deleteNote(${note.id})">
-                <i class="bi bi-trash me-1"></i>Delete
-            </button>
-        </div>
-    `;
-    
-    card.appendChild(cardBody);
-    card.appendChild(cardFooter);
-    col.appendChild(card);
-    
-    return col;
-}
 
 
 // Setup profile tabs
@@ -1280,14 +1424,111 @@ async function handleProfileUpdate() {
     showNotification('Profile editing has been disabled.', 'info');
 }
 
+// Setup change password modal
+function setupChangePasswordModal() {
+    const changePasswordBtn = document.getElementById('changePasswordBtn');
+    const savePasswordBtn = document.getElementById('savePasswordBtn');
+    
+    if (changePasswordBtn) {
+        changePasswordBtn.addEventListener('click', handleChangePasswordClick);
+    }
+    
+    if (savePasswordBtn) {
+        savePasswordBtn.addEventListener('click', handleSavePassword);
+    }
+}
+
+// Handle change password button click
+function handleChangePasswordClick() {
+    // Clear the form
+    const currentPassword = document.getElementById('currentPassword');
+    const newPassword = document.getElementById('newPassword');
+    const confirmPassword = document.getElementById('confirmPassword');
+    
+    if (currentPassword) currentPassword.value = '';
+    if (newPassword) newPassword.value = '';
+    if (confirmPassword) confirmPassword.value = '';
+    
+    // Show the modal
+    const changePasswordModal = new bootstrap.Modal(document.getElementById('changePasswordModal'));
+    changePasswordModal.show();
+}
+
+// Handle save password button click
+async function handleSavePassword() {
+    const currentPassword = document.getElementById('currentPassword');
+    const newPassword = document.getElementById('newPassword');
+    const confirmPassword = document.getElementById('confirmPassword');
+    
+    if (!currentPassword || !newPassword || !confirmPassword) {
+        showNotification('Form fields not found.', 'danger');
+        return;
+    }
+    
+    const currentPwd = currentPassword.value.trim();
+    const newPwd = newPassword.value.trim();
+    const confirmPwd = confirmPassword.value.trim();
+    
+    // Validation
+    if (!currentPwd || !newPwd || !confirmPwd) {
+        showNotification('All fields are required.', 'danger');
+        return;
+    }
+    
+    if (newPwd.length < 6) {
+        showNotification('New password must be at least 6 characters long.', 'danger');
+        return;
+    }
+    
+    if (newPwd !== confirmPwd) {
+        showNotification('New passwords do not match.', 'danger');
+        return;
+    }
+    
+    try {
+        // Show loading state
+        const saveBtn = document.getElementById('savePasswordBtn');
+        const originalText = saveBtn.innerHTML;
+        saveBtn.innerHTML = '<i class="bi bi-hourglass-split me-2"></i>Changing...';
+        saveBtn.disabled = true;
+        
+        // Change password
+        await apiService.changePassword({
+            currentPassword: currentPwd,
+            newPassword: newPwd
+        });
+        
+        // Hide the modal
+        const changePasswordModal = bootstrap.Modal.getInstance(document.getElementById('changePasswordModal'));
+        if (changePasswordModal) {
+            changePasswordModal.hide();
+        }
+        
+        showNotification('Password changed successfully!', 'success');
+        
+    } catch (error) {
+        console.error('Failed to change password:', error);
+        const errorMessage = error.message || 'Failed to change password. Please try again.';
+        showNotification(errorMessage, 'danger');
+    } finally {
+        // Reset button state
+        const saveBtn = document.getElementById('savePasswordBtn');
+        saveBtn.innerHTML = originalText;
+        saveBtn.disabled = false;
+    }
+}
+
 // Delete note
 async function deleteNote(noteId) {
     const loggedIn = isLoggedIn();
     if (!loggedIn) {
         showNotification('Please log in to delete notes.', 'warning');
-        // Navigate to login page
-        const isInPagesFolder = window.location.pathname.includes('Pages/');
-        window.location.href = isInPagesFolder ? 'login.html' : 'Pages/login.html';
+        // Navigate to login page (only if not already on login page)
+        const currentPath = window.location.pathname;
+        if (!currentPath.includes('login.html')) {
+            const isInPagesFolder = currentPath.includes('Pages/');
+            window.location.href = isInPagesFolder ? 'login.html' : 'Pages/login.html';
+        }
         return;
     }
     
@@ -1381,7 +1622,6 @@ async function updateMainPageContent() {
     const heroIcon = document.getElementById('heroIcon');
     const dynamicContent = document.getElementById('dynamicContent');
     
-    console.log('Updating main page content, userLoggedIn:', userLoggedIn);
     
     if (userLoggedIn) {
         // User is logged in - show personalized content
@@ -1449,7 +1689,7 @@ async function updateMainPageContent() {
     } else {
         // User is not logged in - show general content
         if (heroDescription) {
-            heroDescription.textContent = 'Share and discover study notes with fellow MIS students.';
+            heroDescription.textContent = 'Share and discover study notes with fellow MIS students at the University of Alabama.';
         }
         
         if (heroIcon) {
@@ -1554,12 +1794,46 @@ async function handleSearchSubmit(e) {
     if (author) searchParams.author = author;
     
     try {
+        // Show loading state
+        showSearchLoading();
+        
         const notes = await apiService.getNotes(searchParams);
+        
         displaySearchResults(notes || []);
     } catch (error) {
         console.error('Search failed:', error);
         showNotification('Search failed. Please try again.', 'danger');
         displaySearchResults([]);
+    }
+}
+
+// Show loading state for search
+function showSearchLoading() {
+    const searchResults = document.querySelector('.search-results');
+    const notesGrid = document.getElementById('notesGrid');
+    const resultCount = document.getElementById('resultCount');
+    
+    // Show search results section
+    if (searchResults) {
+        searchResults.classList.add('ready');
+    }
+    
+    if (notesGrid) {
+        notesGrid.innerHTML = `
+            <div class="col-12">
+                <div class="text-center py-5">
+                    <div class="spinner-border text-primary mb-3" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <h4 class="text-muted">Searching...</h4>
+                    <p class="text-muted">Please wait while we find your notes.</p>
+                </div>
+            </div>
+        `;
+    }
+    
+    if (resultCount) {
+        resultCount.textContent = 'Searching...';
     }
 }
 
@@ -1600,7 +1874,7 @@ function displaySearchResults(notes) {
 }
 
 // Create note card element
-function createNoteCard(note) {
+function createNoteCard(note, showDeleteButton = false) {
     const col = document.createElement('div');
     col.className = 'col-md-6 col-lg-4 mb-4';
     
@@ -1616,7 +1890,7 @@ function createNoteCard(note) {
         <div class="mb-2">
             <span class="badge bg-primary me-1">${escapeHtml(note.topic || 'General')}</span>
             <span class="badge bg-secondary me-1">${escapeHtml(note.class || 'MIS')}</span>
-            <span class="badge bg-info">${note.year || 'N/A'}</span>
+            <span class="badge bg-info">${(note.year || 'N/A').toString().split(/[,\s]+/)[0]}</span>
         </div>
         <div class="d-flex justify-content-between align-items-center">
             <small class="text-muted">By ${escapeHtml(note.authorName || 'Unknown')}</small>
@@ -1626,13 +1900,27 @@ function createNoteCard(note) {
     
     const cardFooter = document.createElement('div');
     cardFooter.className = 'card-footer bg-transparent';
-    cardFooter.innerHTML = `
-        <div class="d-flex justify-content-between">
-            <a href="note.html?id=${note.id}" class="btn btn-outline-primary btn-sm">
-                <i class="bi bi-eye me-1"></i>View
-            </a>
-        </div>
-    `;
+    
+    if (showDeleteButton) {
+        cardFooter.innerHTML = `
+            <div class="d-flex justify-content-between">
+                <a href="note.html?id=${note.id}" class="btn btn-outline-primary btn-sm">
+                    <i class="bi bi-eye me-1"></i>View
+                </a>
+                <button class="btn btn-outline-danger btn-sm" onclick="deleteNote(${note.id})">
+                    <i class="bi bi-trash me-1"></i>Delete
+                </button>
+            </div>
+        `;
+    } else {
+        cardFooter.innerHTML = `
+            <div class="d-flex justify-content-between">
+                <a href="note.html?id=${note.id}" class="btn btn-outline-primary btn-sm">
+                    <i class="bi bi-eye me-1"></i>View
+                </a>
+            </div>
+        `;
+    }
     
     card.appendChild(cardBody);
     card.appendChild(cardFooter);

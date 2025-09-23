@@ -36,7 +36,7 @@
                         <a class="nav-link" href="search.html">Search Notes</a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="upload.html" id="uploadNavLink">Upload Note</a>
+                        <a class="nav-link" href="upload.html" id="uploadNavLink">Upload Notes</a>
                     </li>
                     <li class="nav-item" id="profileNavItem" style="display: none;">
                         <a class="nav-link" href="profile.html">My Profile</a>
@@ -62,12 +62,17 @@
                     <div class="card-body">
                         <div class="d-flex justify-content-between align-items-start mb-3">
                             <div>
-                                <h1 class="h2 mb-2" id="noteTitle">Note Title</h1>
+                                <h1 class="h2 mb-2" id="noteTitle"></h1>
                                 <div class="d-flex align-items-center mb-2">
-                                    <span class="badge bg-primary me-2" id="noteTopic">Topic</span>
-                                    <span class="badge bg-secondary me-2" id="noteClass">Class</span>
-                                    <span class="badge bg-info" id="noteYear">Year</span>
+                                    <span class="badge bg-primary me-2" id="noteTopic"></span>
+                                    <span class="badge bg-secondary me-2" id="noteClass"></span>
+                                    <span class="badge bg-info" id="noteYear"></span>
                                 </div>
+                            </div>
+                            <div id="editButtonContainer" style="display: none;">
+                                <button class="btn btn-outline-primary" id="editNoteBtn">
+                                    <i class="bi bi-pencil me-2"></i>Edit Note
+                                </button>
                             </div>
                         </div>
 
@@ -78,8 +83,8 @@
                                     <i class="bi bi-person text-white"></i>
                                 </div>
                                 <div>
-                                    <div class="fw-bold" id="noteAuthor">Author Name</div>
-                                    <small class="text-muted" id="noteDate">Posted on Date</small>
+                                    <div class="fw-bold" id="noteAuthor"></div>
+                                    <small class="text-muted" id="noteDate"></small>
                                 </div>
                             </div>
                         </div>
@@ -90,7 +95,7 @@
                 <div class="card shadow-sm border-0 mb-4">
                     <div class="card-body">
                         <div class="note-content" id="noteContent">
-                            <p>Note content will appear here...</p>
+                            <p></p>
                         </div>
                     </div>
                 </div>
@@ -107,8 +112,8 @@
                         <div class="bg-primary rounded-circle d-flex align-items-center justify-content-center mx-auto mb-3" style="width: 80px; height: 80px;">
                             <i class="bi bi-person text-white fs-2"></i>
                         </div>
-                        <h5 class="card-title" id="authorName">Author Name</h5>
-                        <button class="btn btn-outline-primary btn-sm" id="viewProfileBtn">View Profile</button>
+                        <h5 class="card-title" id="authorName"></h5>
+                        <button class="btn btn-outline-primary btn-sm" id="viewProfileBtn"></button>
                     </div>
                 </div>
 
@@ -127,6 +132,34 @@
                     </div>
                 </div>
 
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Note Modal -->
+    <div class="modal fade" id="editNoteModal" tabindex="-1" aria-labelledby="editNoteModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="editNoteModalLabel">Edit Note</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="editNoteForm">
+                        <div class="mb-3">
+                            <label for="editNoteTitle" class="form-label">Title</label>
+                            <input type="text" class="form-control" id="editNoteTitle" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="editNoteContent" class="form-label">Content</label>
+                            <textarea class="form-control" id="editNoteContent" rows="10" required></textarea>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="saveNoteBtn">Save Changes</button>
+                </div>
             </div>
         </div>
     </div>
