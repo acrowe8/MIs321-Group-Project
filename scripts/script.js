@@ -787,7 +787,7 @@ let notesData = [
         teacher: "Dr. Smith",
         content: "DS project management: 1. Project lifecycle 2. Team roles 3. Methodology selection 4. Tool selection 5. Quality assurance 6. Stakeholder management 7. Success metrics",
         rating: 4.5,
-        date: "2024-09-06"
+        date: "2025-09-06"
     }
 ];
 
