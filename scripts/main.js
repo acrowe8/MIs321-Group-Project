@@ -1,1435 +1,1643 @@
-// Storage keys
-const STORAGE_NOTES_KEY = "notes:data";
-const STORAGE_USER_ID_KEY = "notes:userId";
-const STORAGE_USERS_KEY = "notes:users";
-const STORAGE_SESSION_USER_ID_KEY = "notes:sessionUserId";
-const STORAGE_COMMENTS_KEY = "notes:comments";
+// Main JavaScript for MIS SHARE Website
 
-// Performance optimization
-let lastRenderHash = null;
-
-// Utilities
-function generateId() {
-	return Math.random().toString(36).slice(2) + Date.now().toString(36);
-}
-
-function getOrCreateUserId() {
-	let id = localStorage.getItem(STORAGE_USER_ID_KEY);
-	if (!id) {
-		id = generateId();
-		localStorage.setItem(STORAGE_USER_ID_KEY, id);
-	}
-	return id;
-}
-
-// Auth utilities (simple localStorage-based)
-function loadUsers() {
-	try {
-		const raw = localStorage.getItem(STORAGE_USERS_KEY);
-		return raw ? JSON.parse(raw) : [];
-	} catch (e) {
-		console.error("Failed to parse users from storage", e);
-		return [];
-	}
-}
-
-function saveUsers(users) {
-	localStorage.setItem(STORAGE_USERS_KEY, JSON.stringify(users));
-}
-
-function loadComments() {
-	try {
-		const raw = localStorage.getItem(STORAGE_COMMENTS_KEY);
-		return raw ? JSON.parse(raw) : [];
-	} catch (e) {
-		console.error("Failed to parse comments from storage", e);
-		return [];
-	}
-}
-
-function saveComments(comments) {
-	localStorage.setItem(STORAGE_COMMENTS_KEY, JSON.stringify(comments));
-}
-
-function getCurrentUser() {
-	const id = localStorage.getItem(STORAGE_SESSION_USER_ID_KEY);
-	if (!id) return null;
-	return loadUsers().find((u) => u.id === id) || null;
-}
-
-function setCurrentUserId(id) {
-	if (id) localStorage.setItem(STORAGE_SESSION_USER_ID_KEY, id);
-	else localStorage.removeItem(STORAGE_SESSION_USER_ID_KEY);
-}
-
-function simpleHash(input) {
-	try {
-		return btoa(unescape(encodeURIComponent(input)));
-	} catch {
-		return input;
-	}
-}
-
-function signupUser(firstName, lastName, cwid, email, password) {
-	const users = loadUsers();
-	const exists = users.some((u) => u.email.toLowerCase() === email.toLowerCase());
-	if (exists) return { ok: false, error: "Email already registered" };
-	if (users.some((u) => (u.cwid || "").toLowerCase() === cwid.toLowerCase())) {
-		return { ok: false, error: "CWID already registered" };
-	}
-	const user = {
-		id: generateId(),
-		name: `${firstName.trim()} ${lastName.trim()}`.trim(),
-		firstName: firstName.trim(),
-		lastName: lastName.trim(),
-		cwid: cwid.trim(),
-		email: email.trim(),
-		passwordHash: simpleHash(password),
-	};
-	users.push(user);
-	saveUsers(users);
-	setCurrentUserId(user.id);
-	return { ok: true, user };
-}
-
-function loginUser(email, password) {
-	const users = loadUsers();
-	const user = users.find((u) => u.email.toLowerCase() === email.toLowerCase());
-	if (!user) return { ok: false, error: "Invalid credentials" };
-	if (user.passwordHash !== simpleHash(password)) return { ok: false, error: "Invalid credentials" };
-	setCurrentUserId(user.id);
-	return { ok: true, user };
-}
-
-function loadNotes() {
-	try {
-		const raw = localStorage.getItem(STORAGE_NOTES_KEY);
-		return raw ? JSON.parse(raw) : [];
-	} catch (e) {
-		console.error("Failed to parse notes from storage", e);
-		return [];
-	}
-}
-
-function saveNotes(notes) {
-	localStorage.setItem(STORAGE_NOTES_KEY, JSON.stringify(notes));
-}
-
-function calculateAverageRating(ratings) {
-	if (!ratings || ratings.length === 0) return 0;
-	const sum = ratings.reduce((acc, r) => acc + r.value, 0);
-	return Math.round((sum / ratings.length) * 10) / 10; // one decimal
-}
-
-function hasUserRated(note, userId) {
-	return (note.ratings || []).some((r) => r.userId === userId);
-}
-
-// DOM helpers
-function el(tag, className, html) {
-	const node = document.createElement(tag);
-	if (className) node.className = className;
-	if (html !== undefined) node.innerHTML = html;
-	return node;
-}
-
-function renderStars(avg) {
-	const full = Math.floor(avg);
-	const half = avg - full >= 0.5;
-	const empty = 5 - full - (half ? 1 : 0);
-	let html = "";
-	for (let i = 0; i < full; i++) html += "★";
-	if (half) html += "☆"; // simple half-like marker (no half star in pure text)
-	for (let i = 0; i < empty; i++) html += "☆";
-	return `<span class="star" aria-label="Average rating ${avg} out of 5">${html}</span>`;
-}
-
-// Validation helpers
-function isValidEmail(email) {
-	// Basic RFC 5322-inspired check suitable for client-side validation
-	const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-	return re.test(email);
-}
-
-function isValidPassword(password) {
-	// At least 8 chars, includes at least one letter and one number
-	if (!password || password.length < 8) return false;
-	const hasLetter = /[A-Za-z]/.test(password);
-	const hasNumber = /[0-9]/.test(password);
-	return hasLetter && hasNumber;
-}
-
-// App state
-let notes = [];
-const userId = getOrCreateUserId();
-
-// Elements
-const notesListEl = document.getElementById("notesList");
-const resultsCountEl = document.getElementById("resultsCount");
-const listViewEl = document.getElementById("listView");
-const detailViewEl = document.getElementById("detailView");
-const noteDetailEl = document.getElementById("noteDetail");
-const backToListBtn = document.getElementById("backToListBtn");
-const profileViewEl = document.getElementById("profileView");
-const profileNotesEl = document.getElementById("profileNotes");
-const backToListFromProfileBtn = document.getElementById("backToListFromProfileBtn");
-const addNoteViewEl = document.getElementById("addNoteView");
-const backToListFromAddBtn = document.getElementById("backToListFromAddBtn");
-const addNotePageForm = document.getElementById("addNotePageForm");
-const addNotePageFiles = document.getElementById("addNotePageFiles");
-const fileListEl = document.getElementById("fileList");
-const cancelAddNotePageBtn = document.getElementById("cancelAddNotePage");
-const addNoteNavBtn = document.getElementById("addNoteNavBtn");
-const brandHomeLink = document.getElementById("brandHomeLink");
-const adminBtn = document.getElementById("adminBtn");
-const changePwBtn = document.getElementById("changePwBtn");
-const profileBtn = document.getElementById("profileBtn");
-
-// Auth elements
-const authStatusEl = document.getElementById("authStatus");
-const loginBtn = document.getElementById("loginBtn");
-const logoutBtn = document.getElementById("logoutBtn");
-const authModalEl = document.getElementById("authModal");
-const authModalTitleEl = document.getElementById("authModalTitle");
-const authForm = document.getElementById("authForm");
-const signupExtraEl = document.getElementById("signupExtra");
-const authFirstNameInput = document.getElementById("authFirstName");
-const authLastNameInput = document.getElementById("authLastName");
-const authCWIDInput = document.getElementById("authCWID");
-const authEmailInput = document.getElementById("authEmail");
-const authPasswordInput = document.getElementById("authPassword");
-const authMsgEl = document.getElementById("authMsg");
-const switchAuthModeBtn = document.getElementById("switchAuthModeBtn");
-const authSubmitBtn = document.getElementById("authSubmitBtn");
-// Admin modal elements
-const adminModalEl = document.getElementById("adminModal");
-const adminNotesListEl = document.getElementById("adminNotesList");
-const adminUsersListEl = document.getElementById("adminUsersList");
-const adminNotesSearchEl = document.getElementById("adminNotesSearch");
-const adminUsersSearchEl = document.getElementById("adminUsersSearch");
-const seedNotesBtn = document.getElementById("seedNotesBtn");
-// Change password elements
-const changePwModalEl = document.getElementById("changePwModal");
-const changePwForm = document.getElementById("changePwForm");
-const currentPwInput = document.getElementById("currentPw");
-const newPwInput = document.getElementById("newPw");
-const newPw2Input = document.getElementById("newPw2");
-const changePwMsgEl = document.getElementById("changePwMsg");
-const changePwSubmitBtn = document.getElementById("changePwSubmit");
-// Edit note elements
-const editNoteModalEl = document.getElementById("editNoteModal");
-const editNoteForm = document.getElementById("editNoteForm");
-const editNoteId = document.getElementById("editNoteId");
-const editNoteTitle = document.getElementById("editNoteTitle");
-const editNoteClass = document.getElementById("editNoteClass");
-const editNoteYear = document.getElementById("editNoteYear");
-const editNoteTopic = document.getElementById("editNoteTopic");
-const editNoteContent = document.getElementById("editNoteContent");
-
-
-const filterInputs = {
-	title: document.getElementById("filterTitle"),
-	author: document.getElementById("filterAuthor"),
-	className: document.getElementById("filterClass"),
-	year: document.getElementById("filterYear"),
-	topic: document.getElementById("filterTopic"),
-};
-
-const clearFiltersBtn = document.getElementById("clearFiltersBtn");
-
-// Initialization
-function init() {
-	notes = loadNotes();
-	bindEvents();
-	populateYearDropdowns();
-	updateAuthUI();
-	renderList();
-}
-
-function bindEvents() {
-	// Filters
-	Object.values(filterInputs).forEach((input) => {
-		input.addEventListener("input", () => renderList());
-		input.addEventListener("change", () => renderList());
-	});
-	clearFiltersBtn.addEventListener("click", () => {
-		Object.values(filterInputs).forEach((i) => (i.value = ""));
-		renderList();
-	});
-
-
-
-	backToListBtn.addEventListener("click", () => {
-		showListView();
-	});
-
-	brandHomeLink.addEventListener("click", (e) => {
-		e.preventDefault();
-		showListView();
-		window.scrollTo({ top: 0, behavior: "smooth" });
-	});
-
-	profileBtn?.addEventListener("click", () => showProfileView());
-	backToListFromProfileBtn?.addEventListener("click", () => showListView());
-	addNoteNavBtn?.addEventListener("click", () => {
-		const user = getCurrentUser();
-		if (!user) {
-			openAuthModal("login", "Please log in to add notes.");
-			return;
-		}
-		showAddNoteView();
-	});
-	backToListFromAddBtn?.addEventListener("click", () => showListView());
-	cancelAddNotePageBtn?.addEventListener("click", () => showListView());
-	
-	// Add Note page form submission
-	addNotePageForm?.addEventListener("submit", (e) => {
-		e.preventDefault();
-		submitAddNotePage();
-	});
-	
-	// File upload handling
-	addNotePageFiles?.addEventListener("change", handleFileUpload);
-
-	// Auth handlers
-	loginBtn.addEventListener("click", () => openAuthModal("login"));
-	
-	// Enter key support for auth form
-	authEmailInput?.addEventListener("keypress", (e) => {
-		if (e.key === "Enter") {
-			e.preventDefault();
-			submitAuth();
-		}
-	});
-	
-	authPasswordInput?.addEventListener("keypress", (e) => {
-		if (e.key === "Enter") {
-			e.preventDefault();
-			submitAuth();
-		}
-	});
-	
-	// Enter key support for signup form fields
-	authFirstNameInput?.addEventListener("keypress", (e) => {
-		if (e.key === "Enter") {
-			e.preventDefault();
-			submitAuth();
-		}
-	});
-	
-	authLastNameInput?.addEventListener("keypress", (e) => {
-		if (e.key === "Enter") {
-			e.preventDefault();
-			submitAuth();
-		}
-	});
-	
-	authCWIDInput?.addEventListener("keypress", (e) => {
-		if (e.key === "Enter") {
-			e.preventDefault();
-			submitAuth();
-		}
-	});
-	logoutBtn.addEventListener("click", () => {
-		if (!confirm("Are you sure you want to log out?")) {
-			return;
-		}
-		setCurrentUserId(null);
-		updateAuthUI();
-		// Clear auth inputs
-		if (authEmailInput) authEmailInput.value = "";
-		if (authPasswordInput) authPasswordInput.value = "";
-		if (authFirstNameInput) authFirstNameInput.value = "";
-		if (authLastNameInput) authLastNameInput.value = "";
-		if (authCWIDInput) authCWIDInput.value = "";
-		if (authMsgEl) authMsgEl.textContent = "";
-		showListView();
-		renderList();
-	});
-	switchAuthModeBtn.addEventListener("click", () => toggleAuthMode());
-	authSubmitBtn.addEventListener("click", () => submitAuth());
-	changePwSubmitBtn?.addEventListener("click", () => submitPasswordChange());
-
-	// Admin handlers
-	adminModalEl?.addEventListener("show.bs.modal", () => renderAdmin());
-	if (adminNotesSearchEl) adminNotesSearchEl.addEventListener("input", renderAdmin);
-	if (adminUsersSearchEl) adminUsersSearchEl.addEventListener("input", renderAdmin);
-seedNotesBtn?.addEventListener("click", () => {
-	if (!confirm("Generate 100 dummy notes? This will append to existing notes.")) return;
-	generateDummyNotes(100);
-	renderAdmin();
-	renderList();
+// DOM Content Loaded Event
+document.addEventListener('DOMContentLoaded', function() {
+    // Wait a bit to ensure all scripts are loaded
+    setTimeout(async () => {
+        await initializeWebsite();
+        // Mark page as ready to show content
+        document.body.classList.add('page-ready');
+        
+        // Wait for the background color transition to complete (0.3s) before making it transparent
+        setTimeout(() => {
+            document.body.style.backgroundColor = 'transparent';
+        }, 300);
+    }, 50);
 });
 
-	// Edit note submit
-	editNoteForm?.addEventListener("submit", (e) => {
-		e.preventDefault();
-		const currentUser = getCurrentUser();
-		if (!currentUser) return;
-		const id = editNoteId.value;
-		const note = notes.find((n) => n.id === id);
-		if (!note) return;
-		if (note.authorUserId !== currentUser.id && !isAdmin(currentUser)) return;
-		note.title = editNoteTitle.value.trim();
-		note.className = editNoteClass.value.trim();
-		note.year = Number(editNoteYear.value);
-		note.topic = editNoteTopic.value.trim();
-		note.content = editNoteContent.value.trim();
-		saveNotes(notes);
-		bootstrap.Modal.getOrCreateInstance(editNoteModalEl).hide();
-		showDetailView(note.id);
-	});
+// Initialize all website functionality
+async function initializeWebsite() {
+    try {
+        // First, verify authentication status before any page rendering
+        console.log('Verifying authentication status...');
+        await verifyAuthenticationStatus();
+        
+        // Initialize core functionality
+        setupFormValidation();
+        setupPasswordToggles();
+        setupYearDropdowns();
+        setupAuthentication();
+        
+        // Initialize authentication state (async)
+        await initializeAuthState();
+        
+        // Initialize page-specific functionality based on current page
+        const currentPage = getCurrentPage();
+        switch(currentPage) {
+            case 'note':
+                initializeNotePage();
+                break;
+            case 'profile':
+                initializeProfilePage();
+                break;
+            case 'search':
+                initializeSearchPage();
+                break;
+            case 'main':
+                initializeMainPage();
+                break;
+            default:
+                // Other pages - no additional initialization needed
+                break;
+        }
+        
+        // Final navigation update to ensure all pages have correct state
+        console.log('Final navigation update...');
+        await updateNavigation();
+        
+    } catch (error) {
+        console.error('Error during website initialization:', error);
+        // Still mark page as ready even if there's an error
+        document.body.classList.add('page-ready');
+    }
 }
 
-function getActiveFilters() {
-	return {
-		title: filterInputs.title.value.trim().toLowerCase(),
-		author: filterInputs.author.value.trim().toLowerCase(),
-		className: filterInputs.className.value.trim().toLowerCase(),
-		year: filterInputs.year.value.trim(),
-		topic: filterInputs.topic.value.trim().toLowerCase(),
-	};
+// Determine current page based on URL
+function getCurrentPage() {
+    const path = window.location.pathname;
+    if (path.includes('note.html')) return 'note';
+    if (path.includes('profile.html')) return 'profile';
+    if (path.includes('search.html')) return 'search';
+    if (path.includes('upload.html')) return 'upload';
+    if (path.includes('login.html')) return 'login';
+    return 'main';
 }
 
-function applyFilters(data) {
-	const f = getActiveFilters();
-	return data.filter((n) => {
-		const matchTitle = f.title ? n.title.toLowerCase().includes(f.title) : true;
-		const matchAuthor = f.author ? n.author.toLowerCase().includes(f.author) : true;
-		const matchClass = f.className ? n.className.toLowerCase().includes(f.className) : true;
-		const matchYear = f.year ? String(n.year) === String(f.year) : true;
-		const matchTopic = f.topic ? n.topic.toLowerCase().includes(f.topic) : true;
-		return matchTitle && matchAuthor && matchClass && matchYear && matchTopic;
-	});
+// ===== NOTIFICATION SYSTEM =====
+
+// Show notification
+function showNotification(message, type = 'info') {
+    // Create notification element
+    const notification = document.createElement('div');
+    notification.className = `alert alert-${type} alert-dismissible fade show position-fixed`;
+    notification.style.cssText = 'bottom: 20px; right: 20px; z-index: 9999; min-width: 300px;';
+    notification.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    
+    document.body.appendChild(notification);
+    
+    // Auto remove after 5 seconds
+    setTimeout(() => {
+        if (notification.parentNode) {
+            notification.remove();
+        }
+    }, 5000);
 }
 
-function renderList(forceRefresh = false) {
-	const filtered = applyFilters(notes)
-		.slice()
-		.sort((a, b) => {
-			const aCount = (a.ratings || []).length;
-			const bCount = (b.ratings || []).length;
-			if (bCount !== aCount) return bCount - aCount; // more ratings first
-			const aAvg = calculateAverageRating(a.ratings || []);
-			const bAvg = calculateAverageRating(b.ratings || []);
-			if (bAvg !== aAvg) return bAvg - aAvg; // higher average first (5 -> 0)
-			return (b.createdAt || 0) - (a.createdAt || 0); // newest last tiebreaker
-		});
-	
-	// Create a simple hash to check if data has changed
-	const currentHash = JSON.stringify(filtered.map(n => ({ id: n.id, title: n.title, ratings: n.ratings })));
-	
-	// Skip rendering if data hasn't changed and not forced
-	if (!forceRefresh && lastRenderHash === currentHash) {
-		return;
-	}
-	
-	lastRenderHash = currentHash;
-	resultsCountEl.textContent = `${filtered.length} result${filtered.length !== 1 ? "s" : ""}`;
-	
-	// Use DocumentFragment for better performance
-	const fragment = document.createDocumentFragment();
-	
-	if (filtered.length === 0) {
-		const emptyDiv = document.createElement('div');
-		emptyDiv.className = 'col-12 text-secondary';
-		emptyDiv.textContent = 'No notes yet. Add one!';
-		fragment.appendChild(emptyDiv);
-	} else {
-		filtered.forEach((note) => {
-			const avg = calculateAverageRating(note.ratings);
-			const col = el("div", "col-12 col-md-6");
-			const card = el("div", "card h-100 note-card cursor-pointer");
-			card.addEventListener("click", () => showDetailView(note.id));
-			const body = el(
-				"div",
-				"card-body",
-				`<div class="d-flex justify-content-between align-items-start">
-					<h3 class="h5">${escapeHtml(note.title)}</h3>
-					<div class="ms-2 small text-nowrap">${renderStars(avg)}</div>
-				</div>
-				<p class="mb-1 text-secondary small">By ${escapeHtml(note.author)} · ${escapeHtml(note.className)} · ${escapeHtml(String(note.year))} · ${escapeHtml(note.topic)}</p>
-				<p class="mb-0 text-truncate-2">${escapeMultilineToHtml(note.content)}</p>`
-			);
-			card.appendChild(body);
-			col.appendChild(card);
-			fragment.appendChild(col);
-		});
-	}
-	
-	// Single DOM update for better performance
-	notesListEl.innerHTML = "";
-	notesListEl.appendChild(fragment);
+// ===== FORM VALIDATION =====
+
+// Setup form validation
+function setupFormValidation() {
+    // Login form
+    const loginForm = document.getElementById('loginForm');
+    if (loginForm) {
+        loginForm.addEventListener('submit', handleLoginSubmit);
+    }
+
+    // Signup form
+    const signupForm = document.getElementById('signupForm');
+    if (signupForm) {
+        signupForm.addEventListener('submit', handleSignupSubmit);
+        setupFormErrorHandling('signupFirstName', 'signupLastName', 'signupEmail', 'signupCWID', 'signupPassword', 'signupConfirmPassword');
+    }
+
+    // Upload form
+    const uploadForm = document.getElementById('uploadForm');
+    if (uploadForm) {
+        uploadForm.addEventListener('submit', handleUploadSubmit);
+        setupFormErrorHandling('noteTitle', 'noteClass', 'noteTopic', 'noteYear', 'noteContent');
+    }
+
+    // CWID validation
+    const cwidField = document.getElementById('signupCWID');
+    if (cwidField) {
+        cwidField.addEventListener('input', validateCWID);
+    }
+
+    // Password confirmation validation
+    const confirmPasswordField = document.getElementById('signupConfirmPassword');
+    if (confirmPasswordField) {
+        confirmPasswordField.addEventListener('input', validatePasswordMatch);
+    }
 }
 
-function showListView(forceRefresh = false) {
-	listViewEl.classList.remove("d-none");
-	detailViewEl.classList.add("d-none");
-	profileViewEl?.classList.add("d-none");
-	addNoteViewEl?.classList.add("d-none");
-	
-	// Only refresh the list if forced or if it's empty
-	if (forceRefresh || notesListEl.children.length === 0) {
-		renderList(forceRefresh);
-	}
-	
-	// Collapse hamburger menu
-	collapseHamburgerMenu();
+// CWID validation
+function validateCWID(e) {
+    const cwid = e.target.value;
+    const cwidField = e.target;
+    
+    // Remove any non-numeric characters
+    e.target.value = cwid.replace(/[^0-9]/g, '');
+    
+    // Limit to 8 digits
+    if (e.target.value.length > 8) {
+        e.target.value = e.target.value.substring(0, 8);
+    }
+    
+    // Validate format
+    if (e.target.value.length === 8) {
+        cwidField.classList.remove('is-invalid');
+        cwidField.classList.add('is-valid');
+    } else if (e.target.value.length > 0) {
+        cwidField.classList.remove('is-valid');
+        cwidField.classList.add('is-invalid');
+    } else {
+        cwidField.classList.remove('is-valid', 'is-invalid');
+    }
 }
 
-function showDetailView(noteId) {
-	const note = notes.find((n) => n.id === noteId);
-	if (!note) return;
-	const avg = calculateAverageRating(note.ratings);
-	const raterCount = note.ratings.length;
-	const currentUser = getCurrentUser();
-	const canEdit = currentUser && (note.authorUserId === currentUser.id || isAdmin(currentUser));
-	// Load comments for this note
-	const comments = loadComments().filter(c => c.noteId === noteId);
-	const commentsHtml = renderComments(comments, noteId);
-	
-	noteDetailEl.innerHTML = `
-		<div class="card">
-			<div class="card-body">
-				<h2 class="h4 mb-1">${escapeHtml(note.title)}</h2>
-				<p class="text-secondary mb-2">By ${escapeHtml(note.author)} · ${escapeHtml(note.className)} · ${escapeHtml(String(note.year))} · ${escapeHtml(note.topic)}</p>
-				<div class="d-flex align-items-center gap-2 mb-3">
-					<div>${renderStars(avg)}</div>
-					<div class="small text-secondary">(${raterCount} rating${raterCount !== 1 ? "s" : ""})</div>
-				</div>
-				${canEdit ? '<div class="mb-3"><button id="editNoteBtn" class="btn btn-sm btn-outline-primary">Edit Note</button> <button id="deleteNoteBtn" class="btn btn-sm btn-outline-danger">Delete Note</button></div>' : ''}
-				<div class="mb-3">${escapeMultilineToHtml(note.content)}</div>
-				${note.attachments && note.attachments.length > 0 ? `
-					<div class="mb-3">
-						<h6>Attachments:</h6>
-						<div>
-							${note.attachments.map(attachment => {
-								const isImage = attachment.type && attachment.type.startsWith('image/');
-								if (isImage) {
-									// Image attachment - show full size with click to enlarge
-									return `
-										<div class="mb-3">
-											<div class="d-flex justify-content-between align-items-center mb-2">
-												<div>
-													<strong>${escapeHtml(attachment.name)}</strong>
-													<small class="text-muted d-block">${(attachment.size / 1024 / 1024).toFixed(2)} MB</small>
-												</div>
-											</div>
-											<img src="${attachment.url}" 
-												 alt="${escapeHtml(attachment.name)}" 
-												 class="img-fluid rounded border" 
-												 style="cursor: pointer; max-height: 400px; object-fit: contain;"
-												 onclick="openImageModal('${attachment.url}', '${escapeHtml(attachment.name)}')">
-										</div>
-									`;
-								} else {
-									// Document attachment - show button to view text
-									return `
-										<div class="list-group-item d-flex justify-content-between align-items-center mb-2">
-											<div class="d-flex align-items-center">
-												<div>
-													<strong>${escapeHtml(attachment.name)}</strong>
-													<small class="text-muted d-block">${(attachment.size / 1024 / 1024).toFixed(2)} MB</small>
-												</div>
-											</div>
-											<button class="btn btn-sm btn-outline-primary" onclick="viewDocument('${attachment.id}')">
-												View Text
-											</button>
-										</div>
-									`;
-								}
-							}).join('')}
-						</div>
-					</div>
-				` : ''}
-				<div>
-					<label class="form-label">Your Rating</label>
-					<div class="d-flex align-items-center gap-2">
-						<div class="btn-group" role="group" aria-label="Rate this note">
-							${[1,2,3,4,5]
-								.map((v) => `<input type="radio" class="btn-check" name="rating" id="rate${v}" value="${v}" autocomplete="off">
-								<label class="btn btn-outline-primary" for="rate${v}">${v}</label>`)
-								.join("")}
-						</div>
-						<button id="submitRatingBtn" class="btn btn-primary">Submit</button>
-						<div id="ratingMsg" class="small text-secondary"></div>
-					</div>
-				</div>
-			</div>
-		</div>
-		
-		<!-- Comments Section -->
-		<div class="card mt-3">
-			<div class="card-header">
-				<h5 class="mb-0">Comments (${comments.length})</h5>
-			</div>
-			<div class="card-body">
-				${currentUser ? `
-					<div class="mb-3">
-						<label for="newComment" class="form-label">Add a comment</label>
-						<textarea id="newComment" class="form-control" rows="3" placeholder="Write your comment here..."></textarea>
-						<button id="submitCommentBtn" class="btn btn-primary mt-2">Post Comment</button>
-					</div>
-				` : '<p class="text-muted">Please log in to add comments.</p>'}
-				
-				<div id="commentsList">
-					${commentsHtml}
-				</div>
-			</div>
-		</div>
-	`;
-
-	const submitBtn = document.getElementById("submitRatingBtn");
-	const msgEl = document.getElementById("ratingMsg");
-	const editBtn = document.getElementById("editNoteBtn");
-	const deleteBtn = document.getElementById("deleteNoteBtn");
-
-	if (!currentUser) {
-		msgEl.textContent = "Log in to rate this note.";
-		submitBtn.disabled = true;
-	} else if (note.authorUserId && note.authorUserId === currentUser.id) {
-		msgEl.textContent = "Authors cannot rate their own note.";
-		submitBtn.disabled = true;
-	} else if (hasUserRated(note, currentUser.id)) {
-		msgEl.textContent = "You have already rated this note.";
-		submitBtn.disabled = true;
-	}
-
-	submitBtn.addEventListener("click", () => {
-		const user = getCurrentUser();
-		if (!user) return;
-		if (note.authorUserId && note.authorUserId === user.id) return;
-		if (hasUserRated(note, user.id)) return;
-		const selected = document.querySelector('input[name="rating"]:checked');
-		if (!selected) {
-			msgEl.textContent = "Select 1-5 to rate.";
-			return;
-		}
-		const value = Number(selected.value);
-		note.ratings.push({ userId: user.id, value, at: Date.now() });
-		saveNotes(notes);
-		showDetailView(note.id); // rerender
-	});
-
-	if (editBtn) {
-		editBtn.addEventListener("click", () => openEditNote(note));
-	}
-	if (deleteBtn) {
-		deleteBtn.addEventListener("click", () => {
-			const current = getCurrentUser();
-			if (!current) return;
-			if (note.authorUserId !== current.id && !isAdmin(current)) return;
-			if (!confirm("Delete this note? This action cannot be undone.")) return;
-			deleteNote(note.id);
-			showListView();
-			renderList();
-		});
-	}
-
-	// Comment functionality
-	const submitCommentBtn = document.getElementById("submitCommentBtn");
-	if (submitCommentBtn) {
-		submitCommentBtn.addEventListener("click", () => {
-			const user = getCurrentUser();
-			if (!user) return;
-			
-			const commentText = document.getElementById("newComment").value.trim();
-			if (!commentText) {
-				alert("Please enter a comment.");
-				return;
-			}
-			
-			const comments = loadComments();
-			const newComment = {
-				id: generateId(),
-				noteId: noteId,
-				authorUserId: user.id,
-				authorName: user.firstName + " " + user.lastName,
-				content: commentText,
-				createdAt: Date.now()
-			};
-			
-			comments.push(newComment);
-			saveComments(comments);
-			
-			// Clear the textarea and refresh the view
-			document.getElementById("newComment").value = "";
-			showDetailView(noteId);
-		});
-	}
-
-	// Add event listeners for comment actions
-	setTimeout(() => {
-		// Edit comment buttons
-		document.querySelectorAll('.edit-comment-btn').forEach(btn => {
-			btn.addEventListener('click', (e) => {
-				const commentId = e.target.dataset.commentId;
-				const commentDiv = document.querySelector(`[data-comment-id="${commentId}"]`);
-				const contentDiv = commentDiv.querySelector('.comment-content');
-				const editForm = commentDiv.querySelector('.edit-comment-form');
-				
-				contentDiv.classList.add('d-none');
-				editForm.classList.remove('d-none');
-			});
-		});
-
-		// Cancel edit buttons
-		document.querySelectorAll('.cancel-edit-comment-btn').forEach(btn => {
-			btn.addEventListener('click', (e) => {
-				const commentId = e.target.dataset.commentId;
-				const commentDiv = document.querySelector(`[data-comment-id="${commentId}"]`);
-				const contentDiv = commentDiv.querySelector('.comment-content');
-				const editForm = commentDiv.querySelector('.edit-comment-form');
-				
-				contentDiv.classList.remove('d-none');
-				editForm.classList.add('d-none');
-			});
-		});
-
-		// Save comment buttons
-		document.querySelectorAll('.save-comment-btn').forEach(btn => {
-			btn.addEventListener('click', (e) => {
-				const commentId = e.target.dataset.commentId;
-				const commentDiv = document.querySelector(`[data-comment-id="${commentId}"]`);
-				const textarea = commentDiv.querySelector('.edit-comment-form textarea');
-				const newContent = textarea.value.trim();
-				
-				if (!newContent) {
-					alert("Comment cannot be empty.");
-					return;
-				}
-				
-				const comments = loadComments();
-				const comment = comments.find(c => c.id === commentId);
-				if (comment) {
-					comment.content = newContent;
-					saveComments(comments);
-					showDetailView(noteId);
-				}
-			});
-		});
-
-		// Delete comment buttons
-		document.querySelectorAll('.delete-comment-btn').forEach(btn => {
-			btn.addEventListener('click', (e) => {
-				const commentId = e.target.dataset.commentId;
-				
-				if (!confirm("Delete this comment? This action cannot be undone.")) {
-					return;
-				}
-				
-				const comments = loadComments();
-				const updatedComments = comments.filter(c => c.id !== commentId);
-				saveComments(updatedComments);
-				showDetailView(noteId);
-			});
-		});
-	}, 100);
-
-	listViewEl.classList.add("d-none");
-	detailViewEl.classList.remove("d-none");
-	// Collapse hamburger menu
-	collapseHamburgerMenu();
+// Password match validation
+function validatePasswordMatch() {
+    const password = document.getElementById('signupPassword').value;
+    const confirmPassword = document.getElementById('signupConfirmPassword').value;
+    const confirmField = document.getElementById('signupConfirmPassword');
+    
+    if (confirmPassword && password !== confirmPassword) {
+        confirmField.classList.add('is-invalid');
+        confirmField.classList.remove('is-valid');
+    } else if (confirmPassword && password === confirmPassword) {
+        confirmField.classList.add('is-valid');
+        confirmField.classList.remove('is-invalid');
+    } else {
+        confirmField.classList.remove('is-valid', 'is-invalid');
+    }
 }
 
-function renderComments(comments, noteId) {
-	if (comments.length === 0) {
-		return '<p class="text-muted">No comments yet. Be the first to comment!</p>';
-	}
-	
-	const currentUser = getCurrentUser();
-	const users = loadUsers();
-	
-	return comments
-		.sort((a, b) => a.createdAt - b.createdAt) // Sort by creation time (oldest first)
-		.map(comment => {
-			const canEdit = currentUser && comment.authorUserId === currentUser.id;
-			const canDelete = currentUser && (
-				comment.authorUserId === currentUser.id || 
-				isAdmin(currentUser) ||
-				notes.find(n => n.id === noteId)?.authorUserId === currentUser.id
-			);
-			
-			return `
-				<div class="border-bottom pb-3 mb-3" data-comment-id="${comment.id}">
-					<div class="d-flex justify-content-between align-items-start">
-						<div class="flex-grow-1">
-							<h6 class="mb-1">${escapeHtml(comment.authorName)}</h6>
-							<small class="text-muted">${new Date(comment.createdAt).toLocaleString()}</small>
-						</div>
-						${canEdit || canDelete ? `
-							<div class="btn-group btn-group-sm">
-								${canEdit ? `<button class="btn btn-outline-primary btn-sm edit-comment-btn" data-comment-id="${comment.id}">Edit</button>` : ''}
-								${canDelete ? `<button class="btn btn-outline-danger btn-sm delete-comment-btn" data-comment-id="${comment.id}">Delete</button>` : ''}
-							</div>
-						` : ''}
-					</div>
-					<div class="mt-2">
-						<div class="comment-content">${escapeMultilineToHtml(comment.content)}</div>
-						${canEdit ? `
-							<div class="edit-comment-form d-none mt-2">
-								<textarea class="form-control" rows="2">${escapeHtml(comment.content)}</textarea>
-								<div class="mt-2">
-									<button class="btn btn-primary btn-sm save-comment-btn" data-comment-id="${comment.id}">Save</button>
-									<button class="btn btn-secondary btn-sm cancel-edit-comment-btn" data-comment-id="${comment.id}">Cancel</button>
-								</div>
-							</div>
-						` : ''}
-					</div>
-				</div>
-			`;
-		}).join('');
+// Setup form error handling
+function setupFormErrorHandling(...fieldIds) {
+    fieldIds.forEach(fieldId => {
+        const field = document.getElementById(fieldId);
+        if (field) {
+            field.addEventListener('blur', function() {
+                if (this.hasAttribute('required') && !this.value.trim()) {
+                    this.classList.add('is-invalid');
+                } else {
+                    this.classList.remove('is-invalid');
+                }
+            });
+        }
+    });
 }
 
-// Simple escaping helpers
-function escapeHtml(str) {
-	return str
-		.replaceAll("&", "&amp;")
-		.replaceAll("<", "&lt;")
-		.replaceAll(">", "&gt;")
-		.replaceAll('"', "&quot;")
-		.replaceAll("'", "&#039;");
+// Show form error
+function showFormError(formId, message) {
+    const form = document.getElementById(formId + 'Form');
+    if (form) {
+        let errorDiv = form.querySelector('.alert-danger');
+        if (!errorDiv) {
+            errorDiv = document.createElement('div');
+            errorDiv.className = 'alert alert-danger';
+            form.insertBefore(errorDiv, form.firstChild);
+        }
+        errorDiv.textContent = message;
+    }
 }
 
-function escapeMultilineToHtml(str) {
-	return escapeHtml(str).replaceAll("\n", "<br>");
+// Hide form error
+function hideFormError(formId) {
+    const form = document.getElementById(formId + 'Form');
+    if (form) {
+        const errorDiv = form.querySelector('.alert-danger');
+        if (errorDiv) {
+            errorDiv.remove();
+        }
+    }
 }
 
-// Utility class for truncation in list cards
-const style = document.createElement("style");
-style.textContent = `.text-truncate-2{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}`;
-document.head.appendChild(style);
+// ===== FORM SUBMISSION HANDLERS =====
 
-// Boot
-document.addEventListener("DOMContentLoaded", init);
-
-// Populate year dropdowns (2018..current)
-function populateYearDropdowns() {
-	const start = 2018;
-	const current = new Date().getFullYear();
-	const years = [];
-	for (let y = current; y >= start; y--) years.push(y);
-	const filterYearEl = document.getElementById("filterYear");
-	filterYearEl.innerHTML = `<option value="">All</option>` + years.map((y) => `<option value="${y}">${y}</option>`).join("");
-	
-	// Populate Add Note page year dropdown
-	const addNotePageYearEl = document.getElementById("addNotePageYear");
-	if (addNotePageYearEl) {
-		addNotePageYearEl.innerHTML = `<option value="">Select year</option>` + years.map((y) => `<option value="${y}">${y}</option>`).join("");
-	}
-	
-	// Populate Edit Note modal year dropdown
-	const editYearEl = document.getElementById("editNoteYear");
-	if (editYearEl) editYearEl.innerHTML = years.map((y) => `<option value="${y}">${y}</option>`).join("");
+// Handle login form submission
+async function handleLoginSubmit(e) {
+    e.preventDefault();
+    hideFormError('login');
+    
+    const email = document.getElementById('loginEmail').value;
+    const password = document.getElementById('loginPassword').value;
+    
+    if (!email || !password) {
+        showFormError('login', 'Please fill in all required fields.');
+        return;
+    }
+    
+    try {
+        showNotification('Logging in...', 'info');
+        const response = await apiService.login(email, password);
+        
+        if (response && response.user) {
+            await setUserLoggedIn(response.user);
+            showNotification('Login successful! Welcome back.', 'success');
+            clearFormFields('loginEmail', 'loginPassword');
+            clearValidationClasses('loginEmail', 'loginPassword');
+            
+            // Determine correct path based on current location
+            const isInPagesFolder = window.location.pathname.includes('Pages/');
+            window.location.href = isInPagesFolder ? `profile.html?cwid=${response.user.cwid}` : `Pages/profile.html?cwid=${response.user.cwid}`;
+        }
+    } catch (error) {
+        console.error('Login failed:', error);
+        showFormError('login', error.message || 'Login failed. Please try again.');
+    }
 }
 
-// Auth UI logic
-let authMode = "login"; // or "signup"
-
-function toggleAuthMode() {
-	authMode = authMode === "login" ? "signup" : "login";
-	refreshAuthModalMode();
+// Handle signup form submission
+async function handleSignupSubmit(e) {
+    e.preventDefault();
+    hideFormError('signup');
+    
+    console.log('Signup form submitted');
+    console.log('apiService available:', typeof apiService);
+    
+    const firstName = document.getElementById('signupFirstName').value;
+    const lastName = document.getElementById('signupLastName').value;
+    const email = document.getElementById('signupEmail').value;
+    const cwid = document.getElementById('signupCWID').value;
+    const password = document.getElementById('signupPassword').value;
+    const confirmPassword = document.getElementById('signupConfirmPassword').value;
+    
+    // Validation
+    if (!firstName || !lastName || !email || !cwid || !password || !confirmPassword) {
+        showFormError('signup', 'Please fill in all required fields.');
+        return;
+    }
+    
+    if (cwid.length !== 8) {
+        showFormError('signup', 'CWID must be exactly 8 digits.');
+        return;
+    }
+    
+    if (password.length < 8) {
+        showFormError('signup', 'Password must be at least 8 characters long.');
+        return;
+    }
+    
+    if (password !== confirmPassword) {
+        showFormError('signup', 'Passwords do not match.');
+        return;
+    }
+    
+    try {
+        showNotification('Creating account...', 'info');
+        const userData = {
+            firstName: firstName,
+            lastName: lastName,
+            email: email,
+            cwid: cwid,
+            password: password
+        };
+        
+        const response = await apiService.register(userData);
+        console.log('Registration response:', response);
+        
+        if (response && response.user) {
+            await setUserLoggedIn(response.user);
+            showNotification('Account created successfully! Welcome to MIS SHARE.', 'success');
+            clearFormFields('signupFirstName', 'signupLastName', 'signupEmail', 'signupCWID', 'signupPassword', 'signupConfirmPassword');
+            clearValidationClasses('signupFirstName', 'signupLastName', 'signupEmail', 'signupCWID', 'signupPassword', 'signupConfirmPassword');
+            
+            // Determine correct path based on current location
+            const isInPagesFolder = window.location.pathname.includes('Pages/');
+            window.location.href = isInPagesFolder ? `profile.html?cwid=${response.user.cwid}` : `Pages/profile.html?cwid=${response.user.cwid}`;
+        }
+    } catch (error) {
+        console.error('Registration failed:', error);
+        showFormError('signup', error.message || 'Registration failed. Please try again.');
+    }
 }
 
-function refreshAuthModalMode() {
-	authModalTitleEl.textContent = authMode === "login" ? "Log in" : "Sign up";
-	authSubmitBtn.textContent = authMode === "login" ? "Log in" : "Create account";
-	switchAuthModeBtn.textContent = authMode === "login" ? "Create an account" : "Have an account? Log in";
-	if (signupExtraEl) signupExtraEl.style.display = authMode === "login" ? "none" : "flex";
-	authMsgEl.textContent = "";
+// Handle upload form submission
+async function handleUploadSubmit(e) {
+    e.preventDefault();
+    hideFormError('upload');
+    
+    // Check if user is logged in
+    if (!isLoggedIn()) {
+        showFormError('upload', 'You must be logged in to upload notes.');
+        showNotification('Please log in to upload notes.', 'warning');
+        return;
+    }
+    
+    const title = document.getElementById('noteTitle').value;
+    const noteClass = document.getElementById('noteClass').value;
+    const topic = document.getElementById('noteTopic').value;
+    const year = document.getElementById('noteYear').value;
+    const content = document.getElementById('noteContent').value;
+    
+    if (!title || !noteClass || !topic || !year || !content) {
+        showFormError('upload', 'Please fill in all required fields.');
+        return;
+    }
+    
+    try {
+        showNotification('Uploading note...', 'info');
+        
+        const noteData = {
+            title: title,
+            class: noteClass,
+            topic: topic,
+            year: parseInt(year),
+            content: content
+        };
+        
+        // Create the note via API
+        const response = await apiService.createNote(noteData);
+        
+        if (response && response.id) {
+            showNotification('Note uploaded successfully!', 'success');
+            
+            // Clear form
+            clearFormFields('noteTitle', 'noteClass', 'noteTopic', 'noteYear', 'noteContent');
+            clearValidationClasses('noteTitle', 'noteClass', 'noteTopic', 'noteYear', 'noteContent');
+            
+            // Redirect to the note page
+            // Determine correct path based on current location
+            const isInPagesFolder = window.location.pathname.includes('Pages/');
+            window.location.href = isInPagesFolder ? `note.html?id=${response.id}` : `Pages/note.html?id=${response.id}`;
+        }
+    } catch (error) {
+        console.error('Upload failed:', error);
+        showFormError('upload', error.message || 'Upload failed. Please try again.');
+    }
 }
 
-function openAuthModal(mode = "login", message) {
-	authMode = mode;
-	refreshAuthModalMode();
-	if (message) {
-		authMsgEl.classList.remove("text-danger");
-		authMsgEl.classList.add("text-secondary");
-		authMsgEl.textContent = message;
-	}
-	const modal = bootstrap.Modal.getOrCreateInstance(authModalEl);
-	modal.show();
+// Clear form fields
+function clearFormFields(...fieldIds) {
+    fieldIds.forEach(fieldId => {
+        const field = document.getElementById(fieldId);
+        if (field) {
+            field.value = '';
+        }
+    });
 }
 
-function submitAuth() {
-	const email = authEmailInput.value.trim();
-	const password = authPasswordInput.value;
-	if (!email || !password) {
-		authMsgEl.classList.remove("text-secondary");
-		authMsgEl.classList.add("text-danger");
-		authMsgEl.textContent = "Email and password are required.";
-		return;
-	}
-	if (!isValidEmail(email)) {
-		authMsgEl.classList.remove("text-secondary");
-		authMsgEl.classList.add("text-danger");
-		authMsgEl.textContent = "Please enter a valid email address.";
-		return;
-	}
-	if (authMode === "signup") {
-		const firstName = authFirstNameInput.value.trim();
-		const lastName = authLastNameInput.value.trim();
-		const cwid = authCWIDInput.value.trim();
-		if (!firstName || !lastName) {
-			authMsgEl.classList.add("text-danger");
-			authMsgEl.textContent = "First and last name are required.";
-			return;
-		}
-		if (!cwid) {
-			authMsgEl.classList.add("text-danger");
-			authMsgEl.textContent = "CWID is required.";
-			return;
-		}
-		if (!/^[0-9]{4,12}$/.test(cwid)) {
-			authMsgEl.classList.add("text-danger");
-			authMsgEl.textContent = "CWID must be 4-12 digits.";
-			return;
-		}
-		if (!isValidPassword(password)) {
-			authMsgEl.classList.remove("text-secondary");
-			authMsgEl.classList.add("text-danger");
-			authMsgEl.textContent = "Password must be at least 8 characters and include letters and numbers.";
-			return;
-		}
-		const res = signupUser(firstName, lastName, cwid, email, password);
-		if (!res.ok) {
-			authMsgEl.classList.add("text-danger");
-			authMsgEl.textContent = res.error;
-			return;
-		}
-	} else {
-		const res = loginUser(email, password);
-		if (!res.ok) {
-			authMsgEl.classList.add("text-danger");
-			authMsgEl.textContent = res.error;
-			return;
-		}
-	}
-	const modal = bootstrap.Modal.getOrCreateInstance(authModalEl);
-	modal.hide();
-	updateAuthUI();
-	// Clear form fields after success
-	if (authEmailInput) authEmailInput.value = "";
-	if (authPasswordInput) authPasswordInput.value = "";
-	if (authFirstNameInput) authFirstNameInput.value = "";
-	if (authLastNameInput) authLastNameInput.value = "";
-	if (authCWIDInput) authCWIDInput.value = "";
-	if (authMsgEl) authMsgEl.textContent = "";
-	showListView();
-	renderList();
+// Clear search form fields
+function clearSearchForm() {
+    clearFormFields('searchTitle', 'searchTopic', 'searchClass', 'searchYear', 'searchAuthor');
 }
 
-function updateAuthUI() {
-	const user = getCurrentUser();
-	if (user) {
-		authStatusEl.classList.remove("d-none");
-		authStatusEl.textContent = `Signed in as ${user.name}`;
-		loginBtn.classList.add("d-none");
-		logoutBtn.classList.remove("d-none");
-		changePwBtn?.classList.remove("d-none");
-		adminBtn.classList.toggle("d-none", !isAdmin(user));
-		profileBtn?.classList.remove("d-none");
-	} else {
-		authStatusEl.classList.add("d-none");
-		authStatusEl.textContent = "";
-		loginBtn.classList.remove("d-none");
-		logoutBtn.classList.add("d-none");
-		adminBtn.classList.add("d-none");
-		changePwBtn?.classList.add("d-none");
-		profileBtn?.classList.add("d-none");
-		const authorInput = document.getElementById("noteAuthor");
-		authorInput.value = "";
-	}
+// Clear validation classes
+function clearValidationClasses(...fieldIds) {
+    fieldIds.forEach(fieldId => {
+        const field = document.getElementById(fieldId);
+        if (field) {
+            field.classList.remove('is-valid', 'is-invalid');
+        }
+    });
 }
 
-// Admin helpers
-const ADMIN_EMAILS = [
-	// Add admin emails here, e.g. "admin@example.com"
-    "hlhoang@crimson.ua.edu"
-];
+// ===== PASSWORD TOGGLE FUNCTIONALITY =====
 
-function isAdmin(user) {
-	if (!user) return false;
-	return ADMIN_EMAILS.some((e) => e.toLowerCase() === user.email.toLowerCase());
+// Setup password toggles
+function setupPasswordToggles() {
+    // This is handled by the onclick attributes in HTML
 }
 
-function deleteNote(noteId) {
-	const idx = notes.findIndex((n) => n.id === noteId);
-	if (idx >= 0) {
-		notes.splice(idx, 1);
-		saveNotes(notes);
-	}
+// Toggle password visibility
+function togglePassword(fieldId) {
+    const field = document.getElementById(fieldId);
+    const toggle = document.getElementById(fieldId + 'Toggle');
+    
+    if (field.type === 'password') {
+        field.type = 'text';
+        toggle.className = 'bi bi-eye-slash';
+    } else {
+        field.type = 'password';
+        toggle.className = 'bi bi-eye';
+    }
 }
 
-function deleteUser(userId) {
-	const users = loadUsers();
-	const idx = users.findIndex((u) => u.id === userId);
-	if (idx >= 0) {
-		users.splice(idx, 1);
-		saveUsers(users);
-		// Remove their session if currently logged in
-		const current = getCurrentUser();
-		if (current && current.id === userId) setCurrentUserId(null);
-		// Optionally, anonymize their notes (keep content, mark author)
-		notes = notes.map((n) => (n.authorUserId === userId ? { ...n, author: "[deleted]", authorUserId: null } : n));
-		saveNotes(notes);
-	}
+
+// ===== YEAR DROPDOWN FUNCTIONALITY =====
+
+// Setup year dropdowns
+function setupYearDropdowns() {
+    const yearSelects = document.querySelectorAll('#noteYear, #searchYear');
+    yearSelects.forEach(yearSelect => {
+        if (yearSelect) {
+            generateYearOptions(yearSelect);
+        }
+    });
 }
 
-function resetUserPassword(userId, newPassword) {
-	const users = loadUsers();
-	const user = users.find((u) => u.id === userId);
-	if (!user) return false;
-	user.passwordHash = simpleHash(newPassword);
-	saveUsers(users);
-	return true;
+// Generate year options
+function generateYearOptions(yearSelect) {
+    if (!yearSelect) return;
+    
+    const currentYear = new Date().getFullYear();
+    
+    for (let year = currentYear; year >= 2018; year--) {
+        const option = document.createElement('option');
+        option.value = year;
+        option.textContent = year;
+        yearSelect.appendChild(option);
+    }
 }
 
-function submitPasswordChange() {
-	const user = getCurrentUser();
-	if (!user) return;
-	const currentPw = currentPwInput?.value || "";
-	const newPw = newPwInput?.value || "";
-	const newPw2 = newPw2Input?.value || "";
-	changePwMsgEl.textContent = "";
-	if (!currentPw || !newPw || !newPw2) {
-		changePwMsgEl.textContent = "All fields are required.";
-		return;
-	}
-	if (simpleHash(currentPw) !== user.passwordHash) {
-		changePwMsgEl.textContent = "Current password is incorrect.";
-		return;
-	}
-	if (newPw !== newPw2) {
-		changePwMsgEl.textContent = "Passwords do not match.";
-		return;
-	}
-	if (!isValidPassword(newPw)) {
-		changePwMsgEl.textContent = "Password must be at least 8 characters and include letters and numbers.";
-		return;
-	}
-	resetUserPassword(user.id, newPw);
-	currentPwInput.value = "";
-	newPwInput.value = "";
-	newPw2Input.value = "";
-	bootstrap.Modal.getOrCreateInstance(changePwModalEl).hide();
-	alert("Password updated.");
+
+// ===== DRAFT FUNCTIONALITY =====
+
+// Save draft (removed - no longer using localStorage)
+function saveDraft() {
+    showNotification('Draft functionality has been removed. Please save your work manually.', 'info');
 }
 
-function renderAdmin() {
-	const user = getCurrentUser();
-	if (!isAdmin(user)) return;
-	// Notes table
-	if (adminNotesListEl) {
-		const term = (adminNotesSearchEl?.value || "").trim().toLowerCase();
-		const filteredNotes = notes.filter((n) => {
-			if (!term) return true;
-			const hay = `${n.title} ${n.author} ${n.className} ${n.topic} ${n.year}`.toLowerCase();
-			return hay.includes(term);
-		});
-		let html = '<div class="d-flex align-items-center mb-2"><button id="adminDeleteSelected" class="btn btn-sm btn-outline-danger me-2">Delete Selected</button><span class="small text-secondary" id="adminSelectedCount">0 selected</span></div>';
-		html += '<table class="table table-sm align-middle"><thead><tr><th style="width:32px;"><input type="checkbox" id="adminSelectAll"></th><th>Title</th><th>Author</th><th>Class</th><th>Year</th><th>Topic</th><th></th></tr></thead><tbody>';
-		filteredNotes.forEach((n) => {
-				html += `<tr>
-				<td><input type="checkbox" class="form-check-input" data-select-id="${n.id}"></td>
-				<td>${escapeHtml(n.title)}</td>
-				<td>${escapeHtml(n.author)}</td>
-				<td>${escapeHtml(n.className)}</td>
-				<td>${escapeHtml(String(n.year))}</td>
-				<td>${escapeHtml(n.topic)}</td>
-				<td class="text-end">
-					<button class="btn btn-sm btn-outline-primary me-1" data-action="edit" data-id="${n.id}">Edit</button>
-					<button class="btn btn-sm btn-outline-danger" data-action="delete-note" data-id="${n.id}">Delete</button>
-				</td>
-			</tr>`;
-		});
-		html += '</tbody></table>';
-		adminNotesListEl.innerHTML = html;
-		adminNotesListEl.querySelectorAll('button[data-action="delete-note"]').forEach((btn) => {
-			btn.addEventListener("click", () => {
-				const id = btn.getAttribute("data-id");
-				if (!confirm("Delete this note?")) return;
-				deleteNote(id);
-				renderAdmin();
-				renderList();
-			});
-		});
-		adminNotesListEl.querySelectorAll('button[data-action="edit"]').forEach((btn) => {
-			btn.addEventListener("click", () => {
-				const id = btn.getAttribute("data-id");
-				const note = notes.find((n) => n.id === id);
-				if (note) openEditNote(note);
-			});
-		});
-
-		// Bulk selection handlers
-		const selectAll = adminNotesListEl.querySelector('#adminSelectAll');
-		const checkboxes = Array.from(adminNotesListEl.querySelectorAll('input[data-select-id]'));
-		const selectedCountEl = adminNotesListEl.querySelector('#adminSelectedCount');
-		const deleteSelectedBtn = adminNotesListEl.querySelector('#adminDeleteSelected');
-
-		function updateSelectedCount() {
-			const count = checkboxes.filter((c) => c.checked).length;
-			if (selectedCountEl) selectedCountEl.textContent = `${count} selected`;
-		}
-
-		selectAll?.addEventListener('change', () => {
-			checkboxes.forEach((c) => (c.checked = selectAll.checked));
-			updateSelectedCount();
-		});
-		checkboxes.forEach((c) => c.addEventListener('change', updateSelectedCount));
-
-		deleteSelectedBtn?.addEventListener('click', () => {
-			const ids = checkboxes.filter((c) => c.checked).map((c) => c.getAttribute('data-select-id'));
-			if (ids.length === 0) return;
-			if (!confirm(`Delete ${ids.length} note(s)?`)) return;
-			ids.forEach((id) => deleteNote(id));
-			renderAdmin();
-			renderList();
-		});
-	}
-
-	// Users table
-	if (adminUsersListEl) {
-		const users = loadUsers();
-		const term = (adminUsersSearchEl?.value || "").trim().toLowerCase();
-		const filteredUsers = users.filter((u) => {
-			if (!term) return true;
-			const hay = `${u.name || ""} ${u.email || ""} ${u.cwid || ""}`.toLowerCase();
-			return hay.includes(term);
-		});
-		let html = '<table class="table table-sm align-middle"><thead><tr><th>Name</th><th>Email</th><th>CWID</th><th></th></tr></thead><tbody>';
-		filteredUsers.forEach((u) => {
-			html += `<tr>
-				<td>${escapeHtml(u.name)}</td>
-				<td>${escapeHtml(u.email)}</td>
-				<td>${escapeHtml(u.cwid || "")}</td>
-				<td class="text-end">
-					<button class="btn btn-sm btn-outline-secondary me-1" data-action="reset-pw" data-id="${u.id}">Reset Password</button>
-					<button class="btn btn-sm btn-outline-danger" data-action="delete-user" data-id="${u.id}">Delete</button>
-				</td>
-			</tr>`;
-		});
-		html += '</tbody></table>';
-		adminUsersListEl.innerHTML = html;
-		adminUsersListEl.querySelectorAll('button[data-action="delete-user"]').forEach((btn) => {
-			btn.addEventListener("click", () => {
-				const id = btn.getAttribute("data-id");
-				if (!confirm("Delete this account? Their notes will be anonymized.")) return;
-				deleteUser(id);
-				renderAdmin();
-				renderList();
-			});
-		});
-		adminUsersListEl.querySelectorAll('button[data-action="reset-pw"]').forEach((btn) => {
-			btn.addEventListener("click", () => {
-				const id = btn.getAttribute("data-id");
-				const newPw = prompt("Enter a temporary password (min 8, letters+numbers):");
-				if (newPw == null) return;
-				if (!isValidPassword(newPw)) { alert("Password must be at least 8 characters and include letters and numbers."); return; }
-				resetUserPassword(id, newPw);
-				alert("Password reset.");
-			});
-		});
-	}
+// Load draft (removed - no longer using localStorage)
+function loadDraft() {
+    showNotification('Draft functionality has been removed.', 'info');
 }
 
-function openEditNote(note) {
-	editNoteId.value = note.id;
-	editNoteTitle.value = note.title;
-	editNoteClass.value = note.className;
-	editNoteYear.value = String(note.year);
-	editNoteTopic.value = note.topic;
-	editNoteContent.value = note.content;
-	bootstrap.Modal.getOrCreateInstance(editNoteModalEl).show();
+// ===== AUTHENTICATION FUNCTIONALITY =====
+
+// Setup authentication
+function setupAuthentication() {
+    checkAuthenticationStatus();
+    setupAuthRedirects();
+    setupLogout();
 }
 
-function showProfileView() {
-	const user = getCurrentUser();
-	if (!user) return openAuthModal("login", "Log in to view your profile.");
-	profileNotesEl.innerHTML = "";
-	const mine = notes.filter((n) => n.authorUserId === user.id);
-	if (mine.length === 0) {
-		profileNotesEl.innerHTML = '<div class="col-12 text-secondary">You have not posted any notes yet.</div>';
-	} else {
-		mine.forEach((note) => {
-			const avg = calculateAverageRating(note.ratings);
-			const col = el("div", "col-12 col-md-6");
-			const card = el("div", "card h-100 note-card cursor-pointer");
-			card.addEventListener("click", () => {
-				profileViewEl.classList.add("d-none");
-				showDetailView(note.id);
-			});
-			const body = el(
-				"div",
-				"card-body",
-				`<div class="d-flex justify-content-between align-items-start">
-					<h3 class="h5">${escapeHtml(note.title)}</h3>
-					<div class="ms-2 small text-nowrap">${renderStars(avg)}</div>
-				</div>
-				<p class="mb-1 text-secondary small">${escapeHtml(note.className)} · ${escapeHtml(String(note.year))} · ${escapeHtml(note.topic)}</p>
-				<p class="mb-0 text-truncate-2">${escapeMultilineToHtml(note.content)}</p>`
-			);
-			card.appendChild(body);
-			col.appendChild(card);
-			profileNotesEl.appendChild(col);
-		});
-	}
-	listViewEl.classList.add("d-none");
-	profileViewEl.classList.remove("d-none");
-	// Collapse hamburger menu
-	collapseHamburgerMenu();
+// Check if user is logged in
+function isLoggedIn() {
+    const apiService = window.apiService;
+    console.log('isLoggedIn check on page:', window.location.pathname);
+    console.log('isLoggedIn check:', {
+        apiService: !!apiService,
+        isInitialized: apiService?.isInitialized,
+        hasToken: !!(apiService?.token),
+        token: apiService?.token ? 'exists' : 'null'
+    });
+    
+    if (!apiService) {
+        console.log('No API service available');
+        return false;
+    }
+    
+    // Check if API service is initialized and has a valid token
+    const hasToken = apiService.token !== null && apiService.token !== undefined;
+    const isInitialized = apiService.isInitialized;
+    
+    const result = hasToken && isInitialized;
+    console.log('isLoggedIn result:', result, 'hasToken:', hasToken, 'isInitialized:', isInitialized);
+    return result;
 }
 
-function showAddNoteView() {
-	const user = getCurrentUser();
-	if (!user) return openAuthModal("login", "Log in to add notes.");
-	
-	// Populate year dropdown
-	populateYearDropdowns();
-	
-	// Clear form
-	addNotePageForm.reset();
-	fileListEl.innerHTML = "";
-	
-	// Show the view
-	listViewEl.classList.add("d-none");
-	detailViewEl.classList.add("d-none");
-	profileViewEl.classList.add("d-none");
-	addNoteViewEl.classList.remove("d-none");
-	// Collapse hamburger menu
-	collapseHamburgerMenu();
+// User data storage system
+function initializeUserStorage() {
+    if (!window.misShareUserStorage) {
+        window.misShareUserStorage = {};
+    }
 }
 
-function handleFileUpload() {
-	const files = Array.from(addNotePageFiles.files);
-	fileListEl.innerHTML = "";
-	
-	files.forEach((file, index) => {
-		if (file.size > 10 * 1024 * 1024) { // 10MB limit
-			alert(`File "${file.name}" is too large. Maximum size is 10MB.`);
-			return;
-		}
-		
-		const fileItem = document.createElement("div");
-		fileItem.className = "d-flex justify-content-between align-items-center border rounded p-2 mb-2";
-		
-		// Check if file is an image
-		const isImage = file.type.startsWith('image/');
-		let previewHtml = '';
-		
-		if (isImage) {
-			const reader = new FileReader();
-			reader.onload = function(e) {
-				const previewImg = fileItem.querySelector('.file-preview');
-				if (previewImg) {
-					previewImg.src = e.target.result;
-				}
-			};
-			reader.readAsDataURL(file);
-			previewHtml = `<img class="file-preview me-2" style="width: 50px; height: 50px; object-fit: cover; border-radius: 4px;" src="" alt="Preview">`;
-		}
-		
-		fileItem.innerHTML = `
-			<div class="d-flex align-items-center">
-				${previewHtml}
-				<div>
-					<strong>${escapeHtml(file.name)}</strong>
-					<small class="text-muted d-block">${(file.size / 1024 / 1024).toFixed(2)} MB</small>
-				</div>
-			</div>
-			<button type="button" class="btn btn-sm btn-outline-danger remove-file-btn" data-index="${index}">
-				Remove
-			</button>
-		`;
-		
-		fileListEl.appendChild(fileItem);
-	});
-	
-	// Add event listeners for remove buttons
-	fileListEl.querySelectorAll('.remove-file-btn').forEach(btn => {
-		btn.addEventListener('click', (e) => {
-			const index = parseInt(e.target.dataset.index);
-			removeFile(index);
-		});
-	});
+function saveUserData(userData) {
+    initializeUserStorage();
+    
+    // Try sessionStorage first
+    try {
+        if (userData) {
+            sessionStorage.setItem('misShareUser', JSON.stringify(userData));
+        } else {
+            sessionStorage.removeItem('misShareUser');
+        }
+    } catch (error) {
+        // Continue to next method
+    }
+    
+    // Try localStorage as fallback
+    try {
+        if (userData) {
+            localStorage.setItem('misShareUser', JSON.stringify(userData));
+        } else {
+            localStorage.removeItem('misShareUser');
+        }
+    } catch (error) {
+        // Continue to next method
+    }
+    
+    // Use in-memory storage as last resort
+    if (userData) {
+        window.misShareUserStorage.user = userData;
+    } else {
+        delete window.misShareUserStorage.user;
+    }
 }
 
-function removeFile(index) {
-	const dt = new DataTransfer();
-	const files = Array.from(addNotePageFiles.files);
-	
-	files.forEach((file, i) => {
-		if (i !== index) {
-			dt.items.add(file);
-		}
-	});
-	
-	addNotePageFiles.files = dt.files;
-	handleFileUpload(); // Refresh the display
+function loadUserData() {
+    initializeUserStorage();
+    
+    // Try sessionStorage first
+    try {
+        const storedUser = sessionStorage.getItem('misShareUser');
+        if (storedUser) {
+            return JSON.parse(storedUser);
+        }
+    } catch (error) {
+        // Continue to next method
+    }
+    
+    // Try localStorage as fallback
+    try {
+        const storedUser = localStorage.getItem('misShareUser');
+        if (storedUser) {
+            return JSON.parse(storedUser);
+        }
+    } catch (error) {
+        // Continue to next method
+    }
+    
+    // Use in-memory storage as last resort
+    return window.misShareUserStorage.user || null;
 }
 
-async function submitAddNotePage() {
-	const user = getCurrentUser();
-	if (!user) return;
-	
-	const title = document.getElementById("addNotePageTitle").value.trim();
-	const className = document.getElementById("addNotePageClass").value;
-	const year = document.getElementById("addNotePageYear").value;
-	const topic = document.getElementById("addNotePageTopic").value.trim();
-	const content = document.getElementById("addNotePageContent").value.trim();
-	
-	if (!title || !className || !year || !topic || !content) {
-		alert("Please fill in all required fields.");
-		return;
-	}
-	
-	// Process uploaded files (images only)
-	const files = Array.from(addNotePageFiles.files);
-	const attachments = [];
-	
-	for (const file of files) {
-		// Only allow image files
-		if (!file.type.startsWith('image/')) {
-			alert(`File "${file.name}" is not an image. Only image files are allowed.`);
-			continue;
-		}
-		
-		const attachment = {
-			id: generateId(),
-			name: file.name,
-			size: file.size,
-			type: file.type,
-			lastModified: file.lastModified,
-			url: `#file-${file.name}`
-		};
-		
-		// Store the image data URL for display
-		attachment.dataUrl = await new Promise((resolve) => {
-			const reader = new FileReader();
-			reader.onload = (e) => resolve(e.target.result);
-			reader.readAsDataURL(file);
-		});
-		attachment.url = attachment.dataUrl; // Use data URL for display
-		
-		attachments.push(attachment);
-	}
-	
-	const note = {
-		id: generateId(),
-		title,
-		className,
-		year: Number(year),
-		topic,
-		content,
-		author: user.firstName + " " + user.lastName,
-		authorUserId: user.id,
-		ratings: [],
-		createdAt: Date.now(),
-		attachments: attachments
-	};
-	
-	notes.push(note);
-	saveNotes(notes);
-	
-	// Show success message and go to the new note's detail page
-	alert("Note created successfully!");
-	addNoteViewEl.classList.add("d-none");
-	// Force refresh the list to show the new note
-	renderList(true);
-	showDetailView(note.id);
+// Get current user info
+async function getCurrentUser() {
+    const loggedIn = isLoggedIn();
+    
+    if (!loggedIn) {
+        return null;
+    }
+    
+    // First try to get from storage
+    const storedUser = loadUserData();
+    if (storedUser) {
+        return storedUser;
+    }
+    
+    // Fallback to API call
+    try {
+        const user = await apiService.getCurrentUser();
+        if (user) {
+            saveUserData(user);
+        }
+        return user;
+    } catch (error) {
+        console.error('Failed to get current user:', error);
+        return null;
+    }
 }
 
-function openImageModal(imageUrl, imageName) {
-	const imageModal = new bootstrap.Modal(document.getElementById('imageModal'));
-	const imageModalImg = document.getElementById('imageModalImg');
-	const imageModalTitle = document.getElementById('imageModalTitle');
-	
-	imageModalImg.src = imageUrl;
-	imageModalImg.alt = imageName;
-	imageModalTitle.textContent = imageName;
-	
-	imageModal.show();
+// Set user as logged in
+async function setUserLoggedIn(userData) {
+    // Store user data using the new storage system
+    saveUserData(userData);
+    await updateNavigation();
 }
 
-function viewDocument(attachmentId) {
-	// Find the attachment in all notes
-	const notes = loadNotes();
-	let attachment = null;
-	let noteTitle = '';
-	
-	for (const note of notes) {
-		if (note.attachments) {
-			const foundAttachment = note.attachments.find(att => att.id === attachmentId);
-			if (foundAttachment) {
-				attachment = foundAttachment;
-				noteTitle = note.title;
-				break;
-			}
-		}
-	}
-	
-	if (!attachment) {
-		alert('Attachment not found');
-		return;
-	}
-	
-	// Since we only allow images now, just show a message
-	const documentModal = new bootstrap.Modal(document.getElementById('documentModal'));
-	const documentModalTitle = document.getElementById('documentModalTitle');
-	const documentModalContent = document.getElementById('documentModalContent');
-	
-	documentModalTitle.textContent = `${attachment.name} - ${noteTitle}`;
-	documentModalContent.textContent = 'This is an image attachment. Click on the image above to view it in full size.';
-	
-	documentModal.show();
+// Log user out
+async function logoutUser() {
+    try {
+        // Clear authentication data
+        await apiService.logout();
+        saveUserData(null); // Clear user data from all storage methods
+        
+        // Update navigation to reflect logged out state
+        await updateNavigation();
+        
+        // Show notification
+        showNotification('You have been logged out successfully.', 'info');
+        
+        // Redirect to login page after a short delay
+        setTimeout(() => {
+            const isInPagesFolder = window.location.pathname.includes('Pages/');
+            window.location.href = isInPagesFolder ? 'login.html' : 'Pages/login.html';
+        }, 1000);
+        
+    } catch (error) {
+        console.error('Logout error:', error);
+        // Even if logout fails, clear local data and redirect
+        saveUserData(null);
+        const isInPagesFolder = window.location.pathname.includes('Pages/');
+        window.location.href = isInPagesFolder ? 'login.html' : 'Pages/login.html';
+    }
 }
 
-// Make functions available globally for onclick handlers
-window.openImageModal = openImageModal;
-window.viewDocument = viewDocument;
-
-// Collapse hamburger menu function
-function collapseHamburgerMenu() {
-	const navbarCollapse = document.getElementById('navbarToggleExternalContent');
-	if (navbarCollapse && navbarCollapse.classList.contains('show')) {
-		const bsCollapse = new bootstrap.Collapse(navbarCollapse, {
-			toggle: false
-		});
-		bsCollapse.hide();
-	}
+// Initialize authentication state
+async function initializeAuthState() {
+    try {
+        console.log('Initializing authentication state...');
+        console.log('Current page:', window.location.pathname);
+        
+        // Check session storage directly first
+        const sessionToken = sessionStorage.getItem('misShareToken');
+        const sessionUser = sessionStorage.getItem('misShareUser');
+        console.log('Session storage check - Token:', !!sessionToken, 'User:', !!sessionUser);
+        console.log('Session token value:', sessionToken ? 'exists' : 'null');
+        console.log('Session user value:', sessionUser ? 'exists' : 'null');
+        console.log('Current location:', window.location.href);
+        console.log('Current origin:', window.location.origin);
+        console.log('Current pathname:', window.location.pathname);
+        
+        // Check all session storage keys
+        console.log('All session storage keys:', Object.keys(sessionStorage));
+        console.log('All session storage values:', Object.fromEntries(Object.entries(sessionStorage)));
+        
+        // Wait for API service to be available and initialized
+        if (window.apiService) {
+            console.log('API service exists, waiting for initialization...');
+            await window.apiService.waitForInitialization();
+            console.log('API service initialized');
+            console.log('API service token before refresh:', !!window.apiService.token);
+            
+            // Try to refresh token from storage
+            const refreshResult = window.apiService.refreshTokenFromStorage();
+            console.log('Token refresh result:', refreshResult);
+            console.log('Token after refresh:', !!window.apiService.token);
+            console.log('Token value after refresh:', window.apiService.token ? 'exists' : 'null');
+            
+            // Check if we have a stored token and user data
+            const storedToken = window.apiService.token;
+            const storedUser = loadUserData();
+            
+            console.log('Final stored token:', !!storedToken);
+            console.log('Final stored user:', !!storedUser);
+            
+            if (storedToken && storedUser) {
+                // Token is already loaded and validated by API service
+                console.log('User is logged in, updating user info');
+                await updateUserInfo();
+            } else {
+                // Clear any invalid data
+                console.log('No valid token/user data, clearing');
+                window.apiService.clearToken();
+                saveUserData(null);
+            }
+            
+            // Update navigation after authentication state is determined
+            console.log('About to update navigation, final token:', !!window.apiService?.token);
+            await updateNavigation();
+        } else {
+            console.log('No API service available!');
+        }
+    } catch (error) {
+        console.error('Failed to initialize auth state:', error);
+    }
 }
 
-// Dummy data generator
-function randomChoice(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
-function generateDummyNotes(count) {
-	const classes = ["MIS 200", "MIS 221", "MIS 321", "MIS 330"];
-	const topics = ["Intro", "Midterm", "Final", "Project", "Lecture", "Lab", "Review", "Notes"];
-	const current = new Date().getFullYear();
-	for (let i = 0; i < count; i++) {
-		const anonymous = Math.random() < 0.4;
-		const title = Math.random() < 0.2 ? "" : `Sample Note ${generateId().slice(0,5)}`;
-		const content = Math.random() < 0.3 ? "" : "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Cras eget.";
-		const note = {
-			id: generateId(),
-			title,
-			content,
-			author: anonymous ? "Anonymous" : `User ${generateId().slice(0,4)}`,
-			authorUserId: anonymous ? null : generateId(),
-			className: randomChoice(classes),
-			year: current - Math.floor(Math.random() * 7),
-			topic: randomChoice(topics),
-			createdAt: Date.now() - Math.floor(Math.random() * 1000 * 60 * 60 * 24 * 365),
-			ratings: [],
-		};
-		// Optionally add some ratings
-		const rCount = Math.floor(Math.random() * 8); // 0..7
-		for (let r = 0; r < rCount; r++) {
-			note.ratings.push({ userId: generateId(), value: 1 + Math.floor(Math.random() * 5), at: Date.now() });
-		}
-		notes.push(note);
-	}
-	saveNotes(notes);
+// Check authentication status and update UI
+async function checkAuthenticationStatus() {
+    await updateNavigation();
+    await updateUserInfo();
 }
 
+
+// Update navigation based on login status
+async function updateNavigation() {
+    const userLoggedIn = isLoggedIn();
+    console.log('updateNavigation called, userLoggedIn:', userLoggedIn);
+    
+    const profileNavItem = document.getElementById('profileNavItem');
+    const loginNavItem = document.getElementById('loginNavItem');
+    const logoutNavItem = document.getElementById('logoutNavItem');
+    const getStartedBtn = document.getElementById('getStartedBtn');
+    
+    console.log('Navigation elements found:', {
+        profileNavItem: !!profileNavItem,
+        loginNavItem: !!loginNavItem,
+        logoutNavItem: !!logoutNavItem,
+        getStartedBtn: !!getStartedBtn
+    });
+
+    if (profileNavItem) {
+        profileNavItem.style.display = userLoggedIn ? 'block' : 'none';
+        
+        // Update profile link with CWID if user is logged in
+        if (userLoggedIn) {
+            const user = await getCurrentUser();
+            if (user) {
+                const profileLink = profileNavItem.querySelector('a');
+                if (profileLink) {
+                    const isInPagesFolder = window.location.pathname.includes('Pages/');
+                    profileLink.href = isInPagesFolder ? `profile.html?cwid=${user.cwid}` : `Pages/profile.html?cwid=${user.cwid}`;
+                }
+            }
+        }
+    }
+    if (loginNavItem) {
+        loginNavItem.style.display = userLoggedIn ? 'none' : 'block';
+    }
+    if (logoutNavItem) {
+        logoutNavItem.style.display = userLoggedIn ? 'block' : 'none';
+    }
+    if (getStartedBtn) {
+        console.log('Updating getStartedBtn, userLoggedIn:', userLoggedIn);
+        if (userLoggedIn) {
+            getStartedBtn.innerHTML = '<i class="bi bi-upload me-2"></i>Upload Note';
+            getStartedBtn.href = 'upload.html';
+            console.log('Set getStartedBtn to Upload Note');
+        } else {
+            getStartedBtn.innerHTML = '<i class="bi bi-person-plus me-2"></i>Get Started';
+            getStartedBtn.href = 'login.html';
+            console.log('Set getStartedBtn to Get Started');
+        }
+    } else {
+        console.log('getStartedBtn not found');
+    }
+    
+    // Update main page content if we're on the main page
+    const currentPage = getCurrentPage();
+    if (currentPage === 'main') {
+        await updateMainPageContent();
+    }
+}
+
+// Update user info in forms
+async function updateUserInfo() {
+    // No longer needed since we removed the author field
+}
+
+// Setup authentication redirects
+function setupAuthRedirects() {
+    const uploadNavLink = document.getElementById('uploadNavLink');
+    if (uploadNavLink) {
+        uploadNavLink.addEventListener('click', function(e) {
+            const loggedIn = isLoggedIn();
+            if (!loggedIn) {
+                e.preventDefault();
+                showNotification('Please log in to upload notes.', 'warning');
+                // Navigate to login page
+                const isInPagesFolder = window.location.pathname.includes('Pages/');
+                window.location.href = isInPagesFolder ? 'login.html' : 'Pages/login.html';
+            }
+        });
+    }
+}
+
+// Setup logout functionality
+function setupLogout() {
+    const logoutLink = document.getElementById('logoutLink');
+    if (logoutLink) {
+        logoutLink.addEventListener('click', function(e) {
+            e.preventDefault();
+            logoutUser();
+        });
+    }
+}
+
+// ===== DATA CLEARING FUNCTIONALITY =====
+
+// Clear all stored data (removed - no longer using localStorage)
+function clearAllData() {
+    showNotification('Data clearing functionality has been removed. All data is now stored in the database.', 'info');
+    return true;
+}
+
+
+// ===== SCROLL FUNCTIONALITY =====
+
+// Scroll to section
+function scrollToSection(sectionId) {
+    const element = document.getElementById(sectionId);
+    if (element) {
+        element.scrollIntoView({ behavior: 'smooth' });
+    }
+}
+
+
+
+// Note page functionality for MIS SHARE
+
+// Initialize note page functionality
+function initializeNotePage() {
+    setupNoteFunctionality();
+}
+
+// ===== NOTE FUNCTIONALITY =====
+
+// Setup note functionality
+function setupNoteFunctionality() {
+    loadNote();
+    setupNoteInteractions();
+}
+
+// Load note data
+async function loadNote() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const noteId = urlParams.get('id');
+    
+    if (!noteId) {
+        showNotification('No note ID provided.', 'danger');
+        return;
+    }
+    
+    try {
+        const note = await apiService.getNote(noteId);
+        if (note) {
+            displayNote(note);
+            await loadRelatedNotes(note);
+        } else {
+            showNotification('Note not found.', 'danger');
+        }
+    } catch (error) {
+        console.error('Failed to load note:', error);
+        showNotification('Failed to load note.', 'danger');
+    }
+}
+
+// Display note information
+function displayNote(note) {
+    // Store author CWID for profile navigation
+    window.currentNoteAuthorCwid = note.authorId;
+    
+    // Update note header
+    const noteTitle = document.getElementById('noteTitle');
+    const noteTopic = document.getElementById('noteTopic');
+    const noteClass = document.getElementById('noteClass');
+    const noteYear = document.getElementById('noteYear');
+    const noteAuthor = document.getElementById('noteAuthor');
+    const noteDate = document.getElementById('noteDate');
+    const noteContent = document.getElementById('noteContent');
+    
+    if (noteTitle) noteTitle.textContent = note.title || 'Untitled';
+    if (noteTopic) noteTopic.textContent = note.topic || 'General';
+    if (noteClass) noteClass.textContent = note.class || 'MIS';
+    if (noteYear) noteYear.textContent = note.year || 'N/A';
+    if (noteAuthor) noteAuthor.textContent = note.authorName || 'Unknown';
+    if (noteDate) noteDate.textContent = `Posted on ${formatDate(note.createdAt)}`;
+    if (noteContent) {
+        // Display note content with proper formatting
+        const content = note.content || 'No content available';
+        noteContent.innerHTML = content.replace(/\n/g, '<br>');
+    }
+    
+    // Update author info in sidebar
+    const authorName = document.getElementById('authorName');
+    
+    if (authorName) authorName.textContent = note.authorName || 'Unknown';
+    
+    
+}
+
+
+
+// Setup note interactions
+function setupNoteInteractions() {
+    // Setup view profile button
+    const viewProfileBtn = document.getElementById('viewProfileBtn');
+    if (viewProfileBtn) {
+        viewProfileBtn.addEventListener('click', handleViewProfile);
+    }
+}
+
+
+
+// Handle view profile button click
+function handleViewProfile() {
+    const authorCwid = window.currentNoteAuthorCwid;
+    if (authorCwid) {
+        const isInPagesFolder = window.location.pathname.includes('Pages/');
+        window.location.href = isInPagesFolder ? `profile.html?cwid=${authorCwid}` : `Pages/profile.html?cwid=${authorCwid}`;
+    } else {
+        showNotification('Author information not available.', 'warning');
+    }
+}
+
+// Load related notes from the same topic
+async function loadRelatedNotes(note) {
+    try {
+        // Get notes with same topic, excluding the current note
+        const searchParams = {
+            topic: note.topic,
+            pageSize: 6 // Get 6 to account for potentially excluding the current note
+        };
+        
+        const relatedNotes = await apiService.getNotes(searchParams);
+        // Filter out the current note and limit to 5
+        const filteredNotes = relatedNotes?.filter(n => n.id !== note.id).slice(0, 5) || [];
+        displayRelatedNotes(filteredNotes);
+    } catch (error) {
+        console.error('Failed to load related notes:', error);
+        displayRelatedNotes([]);
+    }
+}
+
+// Display related notes
+function displayRelatedNotes(notes) {
+    const relatedNotesContent = document.getElementById('relatedNotesContent');
+    if (!relatedNotesContent) return;
+    
+    if (notes.length === 0) {
+        relatedNotesContent.innerHTML = `
+            <i class="bi bi-journal display-6"></i>
+            <p class="mt-2">No related notes found</p>
+        `;
+        return;
+    }
+    
+    relatedNotesContent.innerHTML = '';
+    
+    notes.forEach(note => {
+        const noteElement = document.createElement('div');
+        noteElement.className = 'border-bottom pb-2 mb-2';
+        noteElement.innerHTML = `
+            <h6 class="mb-1">
+                <a href="note.html?id=${note.id}" class="text-decoration-none">${escapeHtml(note.title)}</a>
+            </h6>
+            <small class="text-muted">By ${escapeHtml(note.authorName)} • ${formatDate(note.createdAt)}</small>
+        `;
+        relatedNotesContent.appendChild(noteElement);
+    });
+}
+
+
+
+// ===== PAGE LOADING STATE =====
+
+// Verify authentication status before page rendering
+async function verifyAuthenticationStatus() {
+    try {
+        // Check if API service is available
+        if (!window.apiService) {
+            console.log('API service not available yet, waiting...');
+            return;
+        }
+        
+        // Check if there's a stored token
+        const storedToken = window.apiService.token;
+        const storedUser = loadUserData();
+        
+        if (storedToken && storedUser) {
+            console.log('Found stored authentication, validating...');
+            try {
+                // Validate token with server
+                const isValid = await window.apiService.validateToken();
+                if (isValid) {
+                    console.log('Authentication verified successfully');
+                } else {
+                    console.log('Token validation failed, clearing authentication');
+                    window.apiService.clearToken();
+                    saveUserData(null);
+                }
+            } catch (error) {
+                console.error('Token validation error:', error);
+                // On validation error, clear authentication to be safe
+                window.apiService.clearToken();
+                saveUserData(null);
+            }
+        } else {
+            console.log('No stored authentication found');
+        }
+    } catch (error) {
+        console.error('Error verifying authentication status:', error);
+        // Clear any potentially invalid data
+        if (window.apiService) {
+            window.apiService.clearToken();
+        }
+        saveUserData(null);
+    }
+}
+
+// ===== UTILITY FUNCTIONS =====
+
+
+// Escape HTML to prevent XSS
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Format date
+function formatDate(dateString) {
+    if (!dateString) return 'Unknown';
+    const date = new Date(dateString);
+    return date.toLocaleDateString();
+}
+
+
+
+
+// Profile page functionality for MIS SHARE
+
+// Initialize profile page functionality
+function initializeProfilePage() {
+    // Hide profile content initially
+    hideProfileContent();
+    setupProfileFunctionality();
+}
+
+// ===== PROFILE FUNCTIONALITY =====
+
+// Hide profile content initially
+function hideProfileContent() {
+    const profileTabs = document.getElementById('profileTabs');
+    const profileTabContent = document.getElementById('profileTabContent');
+    
+    if (profileTabs) profileTabs.style.display = 'none';
+    if (profileTabContent) profileTabContent.style.display = 'none';
+}
+
+// Show profile content after authentication
+function showProfileContent() {
+    const profileTabs = document.getElementById('profileTabs');
+    const profileTabContent = document.getElementById('profileTabContent');
+    
+    if (profileTabs) profileTabs.style.display = 'block';
+    if (profileTabContent) profileTabContent.style.display = 'block';
+}
+
+// Setup profile functionality
+function setupProfileFunctionality() {
+    loadUserProfile();
+    setupProfileTabs();
+    setupEditProfileModal();
+}
+
+// Load user profile data
+async function loadUserProfile() {
+    try {
+        console.log('loadUserProfile called');
+        
+        // Wait for API service to be properly initialized
+        if (window.apiService) {
+            await window.apiService.waitForInitialization();
+        } else {
+            throw new Error('API service not available');
+        }
+        
+        const user = await getCurrentUser();
+        console.log('getCurrentUser returned:', user);
+        
+        // Get the profile owner from URL parameter or default to current user
+        const urlParams = new URLSearchParams(window.location.search);
+        const profileOwnerCwid = urlParams.get('cwid');
+        
+        if (profileOwnerCwid) {
+            // Viewing someone else's profile
+            console.log('Viewing profile for CWID:', profileOwnerCwid);
+            await loadProfileData(profileOwnerCwid, false); // false = not own profile
+        } else if (user) {
+            // Viewing own profile - redirect to URL with CWID
+            console.log('Viewing own profile');
+            const currentUrl = new URL(window.location);
+            if (!currentUrl.searchParams.has('cwid')) {
+                currentUrl.searchParams.set('cwid', user.cwid);
+                window.history.replaceState({}, '', currentUrl);
+            }
+            await loadProfileData(user.cwid, true); // true = own profile
+        } else {
+            // No user logged in and no profile specified
+            console.log('No user logged in and no profile specified');
+            showNotification('Please specify a profile to view or log in to view your own profile.', 'info');
+            showProfileContent(); // Show content even if no user to display error state
+        }
+        
+        // Update navigation to show correct login/logout state
+        if (typeof updateNavigation === 'function') {
+            await updateNavigation();
+        }
+    } catch (error) {
+        console.error('Failed to load profile:', error);
+        showNotification('Failed to load profile data.', 'danger');
+        showProfileContent(); // Show content even on error to display error state
+    }
+}
+
+// Load profile data for a specific user
+async function loadProfileData(cwid, isOwnProfile) {
+    try {
+        console.log('Loading profile data for CWID:', cwid, 'isOwnProfile:', isOwnProfile);
+        
+        // Get the profile owner's data
+        const profileOwner = await apiService.getUser(cwid);
+        if (!profileOwner) {
+            showNotification('Profile not found.', 'danger');
+            showProfileContent(); // Show content to display error state
+            return;
+        }
+        
+        // Display the profile owner's information
+        displayUserProfile(profileOwner);
+        
+        // Load the profile owner's notes
+        await loadUserNotes(cwid);
+        
+        // Hide the bookmarks tab since we removed bookmark functionality
+        hideBookmarksTab();
+        
+    } catch (error) {
+        console.error('Failed to load profile data:', error);
+        showNotification('Failed to load profile data.', 'danger');
+        showProfileContent(); // Show content even on error to display error state
+    }
+}
+
+// Hide bookmarks tab when viewing someone else's profile
+function hideBookmarksTab() {
+    const bookmarksTab = document.querySelector('[data-bs-target="#bookmarks"]');
+    if (bookmarksTab) {
+        bookmarksTab.style.display = 'none';
+    }
+    
+    const bookmarksPane = document.getElementById('bookmarks');
+    if (bookmarksPane) {
+        bookmarksPane.style.display = 'none';
+    }
+}
+
+// Show/hide Edit Profile button (removed)
+function toggleEditProfileButton(isOwnProfile) {
+    // Edit profile functionality has been removed
+}
+
+// Display user profile information
+function displayUserProfile(user) {
+    const userName = document.getElementById('userName');
+    const userBio = document.getElementById('userBio');
+    const userInitials = document.getElementById('userInitials');
+    const profileSpinner = document.getElementById('profileSpinner');
+    
+    // Remove loading spinner
+    if (profileSpinner) {
+        profileSpinner.remove();
+    }
+    
+    if (userName) {
+        userName.innerHTML = `${user.firstName} ${user.lastName}`;
+    }
+    
+    if (userInitials) {
+        const firstInitial = user.firstName ? user.firstName.charAt(0).toUpperCase() : '';
+        const lastInitial = user.lastName ? user.lastName.charAt(0).toUpperCase() : '';
+        userInitials.textContent = `${firstInitial}${lastInitial}`;
+    }
+    
+    if (userBio) {
+        userBio.textContent = 'Welcome to my profile!'; // Default bio since bio property was removed
+    }
+    
+    // Show profile content after user data is loaded
+    showProfileContent();
+}
+
+// Load user's notes
+async function loadUserNotes(userId) {
+    try {
+        const notes = await apiService.getUserNotes(userId);
+        displayUserNotes(notes || []);
+        updateNotesCount(notes?.length || 0);
+    } catch (error) {
+        console.error('Failed to load user notes:', error);
+        displayUserNotes([]);
+    }
+}
+
+// Display user's notes
+function displayUserNotes(notes) {
+    const myNotesGrid = document.getElementById('myNotesGrid');
+    if (!myNotesGrid) return;
+    
+    myNotesGrid.innerHTML = '';
+    
+    if (notes.length === 0) {
+        myNotesGrid.innerHTML = `
+            <div class="col-12">
+                <div class="text-center py-5">
+                    <i class="bi bi-journal-plus display-1 text-muted mb-3"></i>
+                    <h4 class="text-muted">No notes uploaded yet</h4>
+                    <p class="text-muted">Start sharing your knowledge by uploading your first note!</p>
+                    <a href="upload.html" class="btn btn-primary">
+                        <i class="bi bi-upload me-2"></i>Upload First Note
+                    </a>
+                </div>
+            </div>
+        `;
+        return;
+    }
+    
+    notes.forEach(note => {
+        const noteCard = createProfileNoteCard(note);
+        myNotesGrid.appendChild(noteCard);
+    });
+}
+
+// Create note card for profile page
+function createProfileNoteCard(note) {
+    const col = document.createElement('div');
+    col.className = 'col-md-6 col-lg-4 mb-4';
+    
+    const card = document.createElement('div');
+    card.className = 'card h-100 shadow-sm';
+    
+    const cardBody = document.createElement('div');
+    cardBody.className = 'card-body d-flex flex-column';
+    
+    cardBody.innerHTML = `
+        <h5 class="card-title">${escapeHtml(note.title || 'Untitled')}</h5>
+        <p class="card-text text-muted small flex-grow-1">${escapeHtml(note.content?.substring(0, 100) || 'No content available')}${note.content?.length > 100 ? '...' : ''}</p>
+        <div class="mb-2">
+            <span class="badge bg-primary me-1">${escapeHtml(note.topic || 'General')}</span>
+            <span class="badge bg-secondary me-1">${escapeHtml(note.class || 'MIS')}</span>
+            <span class="badge bg-info">${note.year || 'N/A'}</span>
+        </div>
+        <div class="d-flex justify-content-between align-items-center">
+            <small class="text-muted">${formatDate(note.createdAt)}</small>
+        </div>
+    `;
+    
+    const cardFooter = document.createElement('div');
+    cardFooter.className = 'card-footer bg-transparent';
+    cardFooter.innerHTML = `
+        <div class="d-flex justify-content-between">
+            <a href="note.html?id=${note.id}" class="btn btn-outline-primary btn-sm">
+                <i class="bi bi-eye me-1"></i>View
+            </a>
+            <button class="btn btn-outline-danger btn-sm" onclick="deleteNote(${note.id})">
+                <i class="bi bi-trash me-1"></i>Delete
+            </button>
+        </div>
+    `;
+    
+    card.appendChild(cardBody);
+    card.appendChild(cardFooter);
+    col.appendChild(card);
+    
+    return col;
+}
+
+
+// Setup profile tabs
+function setupProfileTabs() {
+    // No special tab handling needed since we removed bookmarks
+}
+
+// Setup edit profile modal (removed)
+function setupEditProfileModal() {
+    // Edit profile functionality has been removed
+}
+
+// Handle profile update (removed)
+async function handleProfileUpdate() {
+    // Edit profile functionality has been removed
+    showNotification('Profile editing has been disabled.', 'info');
+}
+
+// Delete note
+async function deleteNote(noteId) {
+    const loggedIn = isLoggedIn();
+    if (!loggedIn) {
+        showNotification('Please log in to delete notes.', 'warning');
+        // Navigate to login page
+        const isInPagesFolder = window.location.pathname.includes('Pages/');
+        window.location.href = isInPagesFolder ? 'login.html' : 'Pages/login.html';
+        return;
+    }
+    
+    if (!confirm('Are you sure you want to delete this note? This action cannot be undone.')) {
+        return;
+    }
+    
+    try {
+        await apiService.deleteNote(noteId);
+        showNotification('Note deleted successfully!', 'success');
+        loadUserProfile(); // Reload to refresh the list
+    } catch (error) {
+        console.error('Failed to delete note:', error);
+        showNotification('Failed to delete note.', 'danger');
+    }
+}
+
+
+// Update notes count
+function updateNotesCount(count) {
+    const totalNotes = document.getElementById('totalNotes');
+    if (totalNotes) {
+        totalNotes.textContent = count;
+    }
+}
+
+
+
+
+// Search page functionality for MIS SHARE
+
+// Initialize search page functionality
+function initializeSearchPage() {
+    setupSearchFunctionality();
+}
+
+// Initialize upload page functionality
+function initializeUploadPage() {
+    setupUploadPageContent();
+}
+
+// Setup upload page content based on login status
+function setupUploadPageContent() {
+    const uploadForm = document.getElementById('uploadForm');
+    const uploadContainer = document.querySelector('.container');
+    
+    if (!isLoggedIn()) {
+        // Show login prompt instead of form
+        if (uploadContainer) {
+            uploadContainer.innerHTML = `
+                <div class="row justify-content-center">
+                    <div class="col-md-8 col-lg-6">
+                        <div class="card shadow">
+                            <div class="card-body p-5 text-center">
+                                <i class="bi bi-lock display-1 text-muted mb-4"></i>
+                                <h2 class="h3 mb-3">Login Required</h2>
+                                <p class="text-muted mb-4">You need to be logged in to upload notes.</p>
+                                <a href="login.html" class="btn btn-primary btn-lg">
+                                    <i class="bi bi-box-arrow-in-right me-2"></i>Go to Login
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+    }
+}
+
+// Initialize login page functionality
+function initializeLoginPage() {
+    // Login page doesn't need special initialization beyond what's already done
+    // The form validation is already handled in the main initialization
+}
+
+// Initialize main page functionality
+function initializeMainPage() {
+    setupMainPageContent();
+}
+
+// Setup main page content based on login status
+function setupMainPageContent() {
+    // Don't immediately update content - let the global auth state handle it
+    // The content will be updated by updateNavigation() which calls updateMainPageContent()
+}
+
+// Update main page content based on login status
+async function updateMainPageContent() {
+    const userLoggedIn = isLoggedIn();
+    const heroDescription = document.getElementById('heroDescription');
+    const heroIcon = document.getElementById('heroIcon');
+    const dynamicContent = document.getElementById('dynamicContent');
+    
+    console.log('Updating main page content, userLoggedIn:', userLoggedIn);
+    
+    if (userLoggedIn) {
+        // User is logged in - show personalized content
+        if (heroDescription) {
+            heroDescription.textContent = 'Welcome back! Continue sharing and discovering study notes with fellow MIS students.';
+        }
+        
+        if (heroIcon) {
+            heroIcon.className = 'bi bi-person-check display-1 text-white opacity-75';
+        }
+        
+        if (dynamicContent) {
+            const user = await getCurrentUser();
+            const userName = user ? user.firstName : 'User';
+            
+            dynamicContent.innerHTML = `
+                <div class="container">
+                    <div class="row text-center mb-5">
+                        <div class="col-12">
+                            <h2 class="h3 mb-3">Welcome back, ${userName}!</h2>
+                            <p class="text-muted">Here's what you can do today</p>
+                        </div>
+                    </div>
+                    <div class="row g-4">
+                        <div class="col-md-4">
+                            <div class="card h-100 shadow-sm">
+                                <div class="card-body text-center">
+                                    <div class="bg-primary rounded-circle d-inline-flex align-items-center justify-content-center mb-3" style="width: 80px; height: 80px;">
+                                        <i class="bi bi-upload text-white fs-2"></i>
+                                    </div>
+                                    <h5 class="card-title">Upload Notes</h5>
+                                    <p class="card-text text-muted">Share your study materials with the community.</p>
+                                    <a href="upload.html" class="btn btn-primary">Upload Now</a>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="card h-100 shadow-sm">
+                                <div class="card-body text-center">
+                                    <div class="bg-success rounded-circle d-inline-flex align-items-center justify-content-center mb-3" style="width: 80px; height: 80px;">
+                                        <i class="bi bi-search text-white fs-2"></i>
+                                    </div>
+                                    <h5 class="card-title">Search Notes</h5>
+                                    <p class="card-text text-muted">Find notes by topic, class, or author.</p>
+                                    <a href="search.html" class="btn btn-success">Search Now</a>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="card h-100 shadow-sm">
+                                <div class="card-body text-center">
+                                    <div class="bg-info rounded-circle d-inline-flex align-items-center justify-content-center mb-3" style="width: 80px; height: 80px;">
+                                        <i class="bi bi-person text-white fs-2"></i>
+                                    </div>
+                                    <h5 class="card-title">My Profile</h5>
+                                    <p class="card-text text-muted">View your notes, bookmarks, and activity.</p>
+                                    <a href="profile.html" class="btn btn-info">View Profile</a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+    } else {
+        // User is not logged in - show general content
+        if (heroDescription) {
+            heroDescription.textContent = 'Share and discover study notes with fellow MIS students.';
+        }
+        
+        if (heroIcon) {
+            heroIcon.className = 'bi bi-journal-text display-1 text-white opacity-75';
+        }
+        
+        if (dynamicContent) {
+            dynamicContent.innerHTML = `
+                <div class="container">
+                    <div class="row text-center mb-5">
+                        <div class="col-12">
+                            <h2 class="h3 mb-3">How It Works</h2>
+                        </div>
+                    </div>
+                    <div class="row g-4">
+                        <div class="col-md-4">
+                            <div class="text-center">
+                                <div class="bg-primary rounded-circle d-inline-flex align-items-center justify-content-center mb-3" style="width: 80px; height: 80px;">
+                                    <i class="bi bi-upload text-white fs-2"></i>
+                                </div>
+                                <h5>Upload Notes</h5>
+                                <p class="text-muted">Share your study materials with the community.</p>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="text-center">
+                                <div class="bg-primary rounded-circle d-inline-flex align-items-center justify-content-center mb-3" style="width: 80px; height: 80px;">
+                                    <i class="bi bi-search text-white fs-2"></i>
+                                </div>
+                                <h5>Search & Discover</h5>
+                                <p class="text-muted">Find notes by topic, class, or author.</p>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="text-center">
+                                <div class="bg-primary rounded-circle d-inline-flex align-items-center justify-content-center mb-3" style="width: 80px; height: 80px;">
+                                    <i class="bi bi-people text-white fs-2"></i>
+                                </div>
+                                <h5>Connect & Learn</h5>
+                                <p class="text-muted">Learn from your peers and help others succeed.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+    }
+}
+
+// ===== SEARCH FUNCTIONALITY =====
+
+// Setup search functionality
+function setupSearchFunctionality() {
+    const searchForm = document.getElementById('searchForm');
+    const searchBtn = document.getElementById('searchBtn');
+    
+    if (searchForm) {
+        searchForm.addEventListener('submit', handleSearchSubmit);
+    }
+    
+    if (searchBtn) {
+        searchBtn.addEventListener('click', handleSearchSubmit);
+    }
+    
+    // Add Enter key support to all search input fields
+    const searchInputs = [
+        'searchTitle',
+        'searchTopic', 
+        'searchClass',
+        'searchYear',
+        'searchAuthor'
+    ];
+    
+    searchInputs.forEach(inputId => {
+        const input = document.getElementById(inputId);
+        if (input) {
+            input.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleSearchSubmit(e);
+                }
+            });
+        }
+    });
+}
+
+// Handle search form submission
+async function handleSearchSubmit(e) {
+    e.preventDefault();
+    
+    const title = document.getElementById('searchTitle')?.value || '';
+    const topic = document.getElementById('searchTopic')?.value || '';
+    const noteClass = document.getElementById('searchClass')?.value || '';
+    const year = document.getElementById('searchYear')?.value || '';
+    const author = document.getElementById('searchAuthor')?.value || '';
+    
+    const searchParams = {};
+    if (title) searchParams.title = title;
+    if (topic) searchParams.topic = topic;
+    if (noteClass) searchParams.class = noteClass;
+    if (year) searchParams.year = year;
+    if (author) searchParams.author = author;
+    
+    try {
+        const notes = await apiService.getNotes(searchParams);
+        displaySearchResults(notes || []);
+    } catch (error) {
+        console.error('Search failed:', error);
+        showNotification('Search failed. Please try again.', 'danger');
+        displaySearchResults([]);
+    }
+}
+
+// Display search results
+function displaySearchResults(notes) {
+    const notesGrid = document.getElementById('notesGrid');
+    const resultCount = document.getElementById('resultCount');
+    
+    if (!notesGrid) return;
+    
+    // Update result count
+    if (resultCount) {
+        resultCount.textContent = notes.length;
+    }
+    
+    // Clear existing results
+    notesGrid.innerHTML = '';
+    
+    if (notes.length === 0) {
+        // Show empty state without clearing search form
+        notesGrid.innerHTML = `
+            <div class="col-12">
+                <div class="text-center py-5">
+                    <i class="bi bi-search display-1 text-muted mb-3"></i>
+                    <h4 class="text-muted">No notes found</h4>
+                    <p class="text-muted">Try adjusting your search criteria.</p>
+                </div>
+            </div>
+        `;
+        return;
+    }
+    
+    // Display notes
+    notes.forEach(note => {
+        const noteCard = createNoteCard(note);
+        notesGrid.appendChild(noteCard);
+    });
+}
+
+// Create note card element
+function createNoteCard(note) {
+    const col = document.createElement('div');
+    col.className = 'col-md-6 col-lg-4 mb-4';
+    
+    const card = document.createElement('div');
+    card.className = 'card h-100 shadow-sm';
+    
+    const cardBody = document.createElement('div');
+    cardBody.className = 'card-body d-flex flex-column';
+    
+    cardBody.innerHTML = `
+        <h5 class="card-title">${escapeHtml(note.title || 'Untitled')}</h5>
+        <p class="card-text text-muted small flex-grow-1">${escapeHtml(note.content?.substring(0, 100) || 'No content available')}${note.content?.length > 100 ? '...' : ''}</p>
+        <div class="mb-2">
+            <span class="badge bg-primary me-1">${escapeHtml(note.topic || 'General')}</span>
+            <span class="badge bg-secondary me-1">${escapeHtml(note.class || 'MIS')}</span>
+            <span class="badge bg-info">${note.year || 'N/A'}</span>
+        </div>
+        <div class="d-flex justify-content-between align-items-center">
+            <small class="text-muted">By ${escapeHtml(note.authorName || 'Unknown')}</small>
+            <small class="text-muted">${formatDate(note.createdAt)}</small>
+        </div>
+    `;
+    
+    const cardFooter = document.createElement('div');
+    cardFooter.className = 'card-footer bg-transparent';
+    cardFooter.innerHTML = `
+        <div class="d-flex justify-content-between">
+            <a href="note.html?id=${note.id}" class="btn btn-outline-primary btn-sm">
+                <i class="bi bi-eye me-1"></i>View
+            </a>
+        </div>
+    `;
+    
+    card.appendChild(cardBody);
+    card.appendChild(cardFooter);
+    col.appendChild(card);
+    
+    return col;
+}
 
